@@ -16,8 +16,6 @@
 
 #include "supp.h"
 
-#define FIXED_SP 1 // config
-
 static char FILE_[] = __FILE__;
 
 /*  Public data that MUST be there.                             */
