@@ -68,7 +68,8 @@ char *regnames[MAXR+1]={"noreg",
                         "r0","r1","r2","r3","r4","r5","r6","r7",
                         "r8","r9","r10","r11","r12","r13","r14","r15",
                         "r16","r17","r18","r19","r20","r21","r22","r23",
-                        "r24","r25","r26","r27","r28","r29","r30","r31"};
+                        "r24","r25","r26","r27","r28","r29","r30","r31",
+                        "lr", "ad", "at", "sp"};
 
 /*  The Size of each register in bytes.                         */
 zmax regsize[MAXR+1];
@@ -81,7 +82,9 @@ struct Typ *regtype[MAXR+1];
 int regsa[MAXR+1];
 
 /*  Specifies which registers may be scratched by functions.    */
-int regscratch[MAXR+1];
+int regscratch[MAXR+1]={0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,
+                          1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+                          0,0,0,0};
 
 /* specifies the priority for the register-allocator, if the same
    estimated cost-saving can be obtained by several registers, the
@@ -125,9 +128,11 @@ static char *marray[]={"__section(x)=__vattr(\"section(\"#x\")\")",
 		       0};
 
 /* special registers */
-static int sp;                     /*  Stackpointer                        */
-static int t1,t2,t3;               /*  temporary gprs */
-static int f1,f2,f3;               /*  temporary fprs */
+static int sp=37;                  /*  Stackpointer                        */
+static int lr=34;                  /*  Link Register                       */
+static int ad=35,at=36;            /*  Special Temps                       */
+static int t1=1,t2=2;              /*  Temporaries used by code generator  */
+static int f1,f2;                  /*  Temporaries used by code generator  */
 
 #define dt(t) (((t)&UNSIGNED)?udt[(t)&NQ]:sdt[(t)&NQ])
 static char *sdt[MAX_TYPE+1]={"??","c","s","i","l","ll","f","d","ld","v","p"};
@@ -621,17 +626,26 @@ int init_cg(void)
   
   /*  Reserve a few registers for use by the code-generator.      */
   /*  This is not optimal but simple.                             */
-  sp=FIRST_GPR;
-  t1=FIRST_GPR+1;
-  t2=FIRST_GPR+2;
+  // sp=FIRST_GPR;
+  // t1=FIRST_GPR+1;
+  // t2=FIRST_GPR+2;
   f1=FIRST_FPR;
   f2=FIRST_FPR+1;
+
+  // - reserve registers
+  // temporaries
   regsa[t1]=regsa[t2]=1;
   regsa[f1]=regsa[f2]=1;
+  // special regs
+  regsa[lr]=1;
+  regsa[ad]=1;
+  regsa[at]=1;
   regsa[sp]=1;
-  regscratch[t1]=regscratch[t2]=0;
-  regscratch[f1]=regscratch[f2]=0;
-  regscratch[sp]=0;
+
+  // these should all already be set
+  // regscratch[t1]=regscratch[t2]=0;
+  // regscratch[f1]=regscratch[f2]=0;
+  // regscratch[sp]=0;
 
   for(i=FIRST_GPR;i<=LAST_GPR-VOL_GPRS;i++)
     regscratch[i]=1;
