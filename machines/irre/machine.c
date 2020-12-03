@@ -466,8 +466,10 @@ static void emit_obj(FILE *f, struct obj *p, int t)
   }
   else if (p->flags & VAR)
   {
-    if (p->v->storage_class == AUTO || p->v->storage_class == REGISTER)
-      emit(f, "%ld(%s)", real_offset(p), regnames[sp]);
+    if (p->v->storage_class == AUTO || p->v->storage_class == REGISTER) {
+      // stack offset location
+      emit(f, "%s\t#%ld", regnames[sp], real_offset(p));
+    }
     else
     {
       if (!zmeqto(l2zm(0L), p->val.vmax))
