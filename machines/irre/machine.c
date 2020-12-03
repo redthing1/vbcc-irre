@@ -69,7 +69,7 @@ char *regnames[MAXR+1]={"noreg",
                         "r8","r9","r10","r11","r12","r13","r14","r15",
                         "r16","r17","r18","r19","r20","r21","r22","r23",
                         "r24","r25","r26","r27","r28","r29","r30","r31",
-                        "lr", "ad", "at", "sp"};
+                        "lr","ad","at","sp"};
 
 /*  The Size of each register in bytes.                         */
 zmax regsize[MAXR+1];
@@ -128,9 +128,9 @@ static char *marray[]={"__section(x)=__vattr(\"section(\"#x\")\")",
 		       0};
 
 /* special registers */
-static int sp=37;                  /*  Stackpointer                        */
-static int lr=34;                  /*  Link Register                       */
-static int ad=35,at=36;            /*  Special Temps                       */
+static int sp=36;                  /*  Stackpointer                        */
+static int lr=33;                  /*  Link Register                       */
+static int ad=34,at=35;            /*  Special Temps                       */
 static int t1=2,t2=3;              /*  Temporaries used by code generator  */
 static int f1,f2;                  /*  Temporaries used by code generator  */
 
