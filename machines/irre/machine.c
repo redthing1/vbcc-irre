@@ -289,11 +289,22 @@ static void load_reg(FILE *f, int r, struct obj *o, int type)
   }
   else
   {
+    // if operand is REG, skip because it would be redundant
     if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r)
       return;
-    emit(f, "\tmov.%s\t%s,", dt(type), regnames[r]);
-    emit_obj(f, o, type);
-    emit(f, "\n");
+    
+    if ((o->flags & KONST) > 0) {
+      // constant, use SET
+      emit(f, "\tset\t%s,\t", regnames[r]);
+      emit_obj(f, o, type);
+      emit(f, "\n");
+    }
+    else {
+      // use MOV
+      emit(f, "\tmov\t%s,\t", regnames[r]);
+      emit_obj(f, o, type);
+      emit(f, "\n");
+    }
   }
 }
 
