@@ -176,7 +176,7 @@ static long localsize,rsavesize,argsize;
 
 static void emit_obj(FILE *f,struct obj *p,int t);
 
-/* calculate the actual current offset of an object relativ to the
+/* calculate the actual current offset of an object relativd to the
    stack-pointer; we use a layout like this:
    ------------------------------------------------
    | arguments to this function                   |
