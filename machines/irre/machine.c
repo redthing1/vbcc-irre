@@ -146,15 +146,8 @@ static int exit_label;
 /* assembly-prefixes for labels and external identifiers */
 static char *labprefix = "l", *idprefix = "_";
 
-#if FIXED_SP
-/* variables to calculate the size and partitioning of the stack-frame
-   in the case of FIXED_SP */
-static long frameoffset, pushed, maxpushed, framesize;
-#else
-/* variables to keep track of the current stack-offset in the case of
-   a moving stack-pointer */
-static long notpopped, dontpop, stackoffset, maxpushed;
-#endif
+/* variables to keep track of the moving stack */
+int stackoffset;
 
 static long localsize, rsavesize, argsize;
 
@@ -241,12 +234,12 @@ static int special_section(FILE *f, struct Var *v) {
     return 1;
 }
 
-static void push(long push) {
-    stackoffset -= push;
-    if (stackoffset < maxpushed)
-        maxpushed = stackoffset;
-    if (-maxpushed > stack)
-        stack = -maxpushed;
+static void push(long size) {
+    stackoffset -= size;
+}
+
+static void pop(long size) {
+    stackoffset += size;
 }
 
 /* generate code to load the address of a variable into register r */
@@ -978,12 +971,12 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
 {
     int c, t, i;
     struct IC *m;
+    Var* func_var = v;
     argsize = 0;
     if (DEBUG & 1)
         printf("gen_code()\n");
     for (c = 1; c <= MAXR; c++)
         regs[c] = regsa[c];
-    maxpushed = 0;
 
     title(f);
 
