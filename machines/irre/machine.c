@@ -776,8 +776,8 @@ int init_cg(void)
   // sp=FIRST_GPR;
   // t1=FIRST_GPR+1;
   // t2=FIRST_GPR+2;
-  f1 = FIRST_FPR+1;
-  f2 = FIRST_FPR+2;
+  f1 = FIRST_FPR + 1;
+  f2 = FIRST_FPR + 2;
 
   // - reserve registers
   // temporaries
@@ -817,11 +817,20 @@ int freturn(struct Typ *t)
 /*  has to simulate a pseudo register if necessary.                 */
 {
   if (ISFLOAT(t->flags))
-    return FIRST_FPR + 2;
+  {
+    // float return
+    return FIRST_FPR;
+  }
   if (ISSTRUCT(t->flags) || ISUNION(t->flags))
+  {
+    // struct or union return
     return 0;
+  }
   if (zmleq(szof(t), l2zm(4L)))
-    return FIRST_GPR + 3;
+  {
+    // 32-bit word return
+    return FIRST_GPR;
+  }
   else
     return 0;
 }
@@ -851,10 +860,12 @@ int cost_savings(struct IC *p, int r, struct obj *o)
   }
   if (o->flags & DREFOBJ)
     return 4;
-  if (c == SETRETURN && r == p->z.reg && !(o->flags & DREFOBJ)) {
+  if (c == SETRETURN && r == p->z.reg && !(o->flags & DREFOBJ))
+  {
     return 3;
   }
-  if (c == GETRETURN && r == p->q1.reg && !(o->flags & DREFOBJ)) {
+  if (c == GETRETURN && r == p->q1.reg && !(o->flags & DREFOBJ))
+  {
     return 3;
   }
   return 2;
