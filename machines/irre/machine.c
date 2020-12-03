@@ -62,9 +62,13 @@ zmax t_min[MAX_TYPE+1];
 zumax t_max[MAX_TYPE+1];
 zumax tu_max[MAX_TYPE+1];
 
-/*  Names of all registers. will be initialized in init_cg(),
+/*  Names of all registers.
     register number 0 is invalid, valid registers start at 1 */
-char *regnames[MAXR+1];
+char *regnames[MAXR+1]={"noreg",
+                        "r0","r1","r2","r3","r4","r5","r6","r7",
+                        "r8","r9","r10","r11","r12","r13","r14","r15",
+                        "r16","r17","r18","r19","r20","r21","r22","r23",
+                        "r24","r25","r26","r27","lr","ad","at","sp"};
 
 /*  The Size of each register in bytes.                         */
 zmax regsize[MAXR+1];
@@ -585,26 +589,6 @@ int init_cg(void)
   for(i=0;i<=MAX_TYPE;i++){
     sizetab[i]=l2zm(msizetab[i]);
     align[i]=l2zm(malign[i]);
-  }
-
-  regnames[0]="noreg";
-  for(i=FIRST_GPR;i<=LAST_GPR;i++){
-    regnames[i]=mymalloc(10);
-    sprintf(regnames[i],"gpr%d",i-FIRST_GPR);
-    regsize[i]=l2zm(4L);
-    regtype[i]=&ltyp;
-  }
-  for(i=FIRST_FPR;i<=LAST_FPR;i++){
-    regnames[i]=mymalloc(10);
-    sprintf(regnames[i],"fpr%d",i-FIRST_FPR);
-    regsize[i]=l2zm(8L);
-    regtype[i]=&ldbl;
-  }
-  for(i=FIRST_CCR;i<=LAST_CCR;i++){
-    regnames[i]=mymalloc(10);
-    sprintf(regnames[i],"ccr%d",i-FIRST_CCR);
-    regsize[i]=l2zm(1L);
-    regtype[i]=&lchar;
   }
 
   /*  Use multiple ccs.   */
