@@ -776,8 +776,8 @@ int init_cg(void)
   // sp=FIRST_GPR;
   // t1=FIRST_GPR+1;
   // t2=FIRST_GPR+2;
-  f1 = FIRST_FPR;
-  f2 = FIRST_FPR + 1;
+  f1 = FIRST_FPR+1;
+  f2 = FIRST_FPR+2;
 
   // - reserve registers
   // temporaries
