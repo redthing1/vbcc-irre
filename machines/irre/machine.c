@@ -138,7 +138,7 @@ static int section = -1, newobj;
 static char *codename = "\t.text\n", *dataname = "\t.data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
 
 /* return-instruction */
-static char *ret;
+static char *ret = "\tret\n";
 
 /* label at the end of the function (if any) */
 static int exit_label;
@@ -638,8 +638,11 @@ static void function_top(FILE *f, struct Var *v, long offset) {
     } else
         emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
 }
+
 /* generates the function exit code */
-static void function_bottom(FILE *f, struct Var *v, long offset) { emit(f, ret); }
+static void function_bottom(FILE *f, struct Var *v, long offset) {
+    emit(f, ret);
+}
 
 /****************************************/
 /*  End of private data and functions.  */
@@ -965,9 +968,6 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     for (c = 1; c <= MAXR; c++)
         regs[c] = regsa[c];
     maxpushed = 0;
-
-    /*FIXME*/
-    ret = "\trts\n";
 
     for (m = p; m; m = m->next) {
         c = m->code;
