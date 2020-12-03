@@ -1353,11 +1353,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     }
     if ((c >= OR && c <= AND) || (c >= LSHIFT && c <= MOD))
     {
-      // arithmetic/logical operations
-      if (!THREE_ADDR)
-      {
-        load_reg(f, zreg, &p->q1, t);
-      }
+      // binary arithmetic/logical operations
+      // 1. check if we need to preload rB or rC
+      p = preload(f, p);
+      // if (!THREE_ADDR)
+      // {
+      //   load_reg(f, zreg, &p->q1, t);
+      // }
       if (c >= OR && c <= AND)
       {
         emit(f, "\t%s.%s\t%s,", logicals[c - OR], dt(t), regnames[zreg]);
@@ -1366,11 +1368,11 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
       {
         emit(f, "\t%s.%s\t%s,", arithmetics[c - LSHIFT], dt(t), regnames[zreg]);
       }
-      if (THREE_ADDR)
-      {
-        emit_obj(f, &p->q1, t);
-        emit(f, ",");
-      }
+      // if (THREE_ADDR)
+      // {
+      //   emit_obj(f, &p->q1, t);
+      //   emit(f, ",");
+      // }
       emit_obj(f, &p->q2, t);
       emit(f, "\n");
       save_result(f, p);
