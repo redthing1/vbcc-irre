@@ -447,6 +447,7 @@ static void emit_obj(FILE *f, struct obj *p, int t)
   }
   if ((p->flags & (KONST | DREFOBJ)) == (KONST | DREFOBJ))
   {
+    // emit(f, "#"); // decimal constant ??
     emitval(f, &p->val, p->dtyp & NU);
     return;
   }
@@ -479,6 +480,7 @@ static void emit_obj(FILE *f, struct obj *p, int t)
   }
   if (p->flags & KONST)
   {
+    emit(f, "#"); // decimal constant
     emitval(f, &p->val, t & NU);
   }
   if (p->flags & DREFOBJ)
