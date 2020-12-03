@@ -1171,6 +1171,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     }
     if (c == BRA)
     {
+      emit(f, "[BRA]");
       if (0 /*t==exit_label&&framesize==0*/)
         emit(f, ret);
       else
