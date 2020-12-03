@@ -966,7 +966,7 @@ void gen_dc(FILE *f, int t, struct const_list *p)
 /*  offset is the size of the stackframe the function   */
 /*  needs for local variables.                          */
 
-void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
+void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 /*  The main code-generation.                                           */
 {
     int c, t, i;
@@ -1032,7 +1032,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
         }
     }
 
-    localsize = (zm2l(offset) + 3) / 4 * 4;
+    localsize = (zm2l(frame_offset) + 3) / (4 * 4);
 
     function_top(f, v, localsize);
 
