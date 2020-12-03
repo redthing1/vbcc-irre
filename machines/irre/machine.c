@@ -1033,9 +1033,6 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     }
 
     localsize = (zm2l(offset) + 3) / 4 * 4;
-#if FIXED_SP
-    /*FIXME: adjust localsize to get an aligned stack-frame */
-#endif
 
     function_top(f, v, localsize);
 
