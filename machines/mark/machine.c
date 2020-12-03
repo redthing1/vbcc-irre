@@ -3,7 +3,7 @@
 
 static char FILE_[]=__FILE__;
 
-#include "version.h"
+char cg_copyright[]="MARK-II code generator version $(git rev-parse --short HEAD) (c) in 2017 by Vladislav Mlejnecký";
 
 int g_flags[MAXGF]={};
 char *g_flags_name[MAXGF]={};
