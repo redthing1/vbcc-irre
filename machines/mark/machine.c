@@ -102,7 +102,7 @@ int regsa[MAXR+1];
  * estimated cost-saving can be obtained by several registers, the
  * one with the highest priority will be used
  */
-int reg_prio[MAXR+1];
+// int reg_prio[MAXR+1];
 
 
 /*
