@@ -295,13 +295,13 @@ static void load_reg(FILE *f, int r, struct obj *o, int type)
     
     if ((o->flags & KONST) > 0) {
       // constant, use SET
-      emit(f, "\tset\t%s,\t", regnames[r]);
+      emit(f, "\tset\t%s\t", regnames[r]);
       emit_obj(f, o, type);
       emit(f, "\n");
     }
     else {
       // use MOV
-      emit(f, "\tmov\t%s,\t", regnames[r]);
+      emit(f, "\tmov\t%s\t", regnames[r]);
       emit_obj(f, o, type);
       emit(f, "\n");
     }
