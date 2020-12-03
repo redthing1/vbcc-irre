@@ -21,7 +21,7 @@ static char FILE_[]=__FILE__;
 /*  Public data that MUST be there.                             */
 
 /* Name and copyright. */
-char cg_copyright[]="vbcc generic code-generator V0.1b (c) in 2001 by Volker Barthelmann";
+char cg_copyright[]="IRRE code-generator V0.1a (c) 2020, xdrie";
 
 /*  Commandline-flags the code-generator accepts:
     0: just a flag
