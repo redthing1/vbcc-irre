@@ -231,6 +231,14 @@ static int special_section(FILE *f, struct Var *v) {
     return 1;
 }
 
+static void push(long push) {
+    stackoffset -= push;
+    if (stackoffset < maxpushed)
+        maxpushed = stackoffset;
+    if (-maxpushed > stack)
+        stack = -maxpushed;
+}
+
 /* generate code to load the address of a variable into register r */
 static void load_address(FILE *f, int r, struct obj *o, int type)
 /*  Generates code to load the address of a variable into register r.   */
@@ -269,10 +277,14 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
             emit_obj(f, o, type);
             emit(f, "\n");
         } else {
-            // use MOV
-            emit(f, "\tmov\t%s\t", regnames[r]);
-            emit_obj(f, o, type);
-            emit(f, "\n");
+            if ((o->flags & REG) > 0) {
+                // source is register, use MOV
+                emit(f, "\tmov\t%s\t", regnames[r]);
+                emit_obj(f, o, type);
+                emit(f, "\n");
+            } else {
+              // TODO
+            }
         }
     }
 }
@@ -1142,9 +1154,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
                 emit(f, "\n");
                 pushed += zm2l(p->q2.val.vmax);
 #else
-                emit(f, "\tpush.%s\t", dt(t));
-                emit_obj(f, &p->q1, t);
+                // push a reg
+                // 1. grab the value into zreg
+                load_reg(f, zreg, &p->q1, t);
+                emit(f, "\tpsh\t%s", regnames[zreg]);
+                // emit_obj(f, &p->q1, t);
                 emit(f, "\n");
+                // update our tracking of stack offsets
                 push(zm2l(p->q2.val.vmax));
 #endif
                 continue;
