@@ -131,7 +131,7 @@ static char *marray[]={"__section(x)=__vattr(\"section(\"#x\")\")",
 static int sp=37;                  /*  Stackpointer                        */
 static int lr=34;                  /*  Link Register                       */
 static int ad=35,at=36;            /*  Special Temps                       */
-static int t1=1,t2=2;              /*  Temporaries used by code generator  */
+static int t1=2,t2=3;              /*  Temporaries used by code generator  */
 static int f1,f2;                  /*  Temporaries used by code generator  */
 
 #define dt(t) (((t)&UNSIGNED)?udt[(t)&NQ]:sdt[(t)&NQ])
