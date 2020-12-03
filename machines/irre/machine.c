@@ -851,10 +851,12 @@ int cost_savings(struct IC *p, int r, struct obj *o)
   }
   if (o->flags & DREFOBJ)
     return 4;
-  if (c == SETRETURN && r == p->z.reg && !(o->flags & DREFOBJ))
+  if (c == SETRETURN && r == p->z.reg && !(o->flags & DREFOBJ)) {
     return 3;
-  if (c == GETRETURN && r == p->q1.reg && !(o->flags & DREFOBJ))
+  }
+  if (c == GETRETURN && r == p->q1.reg && !(o->flags & DREFOBJ)) {
     return 3;
+  }
   return 2;
 }
 
