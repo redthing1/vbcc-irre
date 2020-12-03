@@ -1354,8 +1354,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     if ((c >= OR && c <= AND) || (c >= LSHIFT && c <= MOD))
     {
       // binary arithmetic/logical operations (binop)
-      // 1. check if we need to preload rB or rC
-      // 
+      // put source1 in zreg
       load_reg(f, zreg, &p->q1, t);
       // if (!THREE_ADDR)
       // {
