@@ -1354,26 +1354,31 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     if ((c >= OR && c <= AND) || (c >= LSHIFT && c <= MOD))
     {
       // binary arithmetic/logical operations (binop)
-      // put source1 in zreg
-      load_reg(f, zreg, &p->q1, t);
+      // put load sources into qregs
+      q1reg = t1;
+      q2reg = t2;
+      load_reg(f, q1reg, &p->q1, t);
+      load_reg(f, q2reg, &p->q2, t);
+      // dest reg
+      zreg = p->z.reg;
       // if (!THREE_ADDR)
       // {
       //   load_reg(f, zreg, &p->q1, t);
       // }
       if (c >= OR && c <= AND)
       {
-        emit(f, "\t%s.%s\t%s,", logicals[c - OR], dt(t), regnames[zreg]);
+        emit(f, "\t%s\t%s,", logicals[c - OR], regnames[zreg]);
       }
       else
       {
-        emit(f, "\t%s.%s\t%s,", arithmetics[c - LSHIFT], dt(t), regnames[zreg]);
+        emit(f, "\t%s\t%s\t%s\t%s", arithmetics[c - LSHIFT], regnames[zreg], regnames[q1reg], regnames[q2reg]);
       }
       // if (THREE_ADDR)
       // {
       //   emit_obj(f, &p->q1, t);
       //   emit(f, ",");
       // }
-      emit_obj(f, &p->q2, t);
+      // emit_obj(f, &p->q2, t);
       emit(f, "\n");
       save_result(f, p);
       continue;
