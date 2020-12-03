@@ -637,10 +637,16 @@ static void function_top(FILE *f, struct Var *v, long offset) {
         emit(f, "%s%s:\n", idprefix, v->identifier);
     } else
         emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
+    if (offset) {
+        emit(f, "\tsbi\t%s\t%s\t%ld\n", regnames[sp], regnames[sp], offset);
+    }
 }
 
 /* generates the function exit code */
 static void function_bottom(FILE *f, struct Var *v, long offset) {
+    if (offset) {
+        emit(f, "\tadi\t%s\t%s\t%ld\n", regnames[sp], regnames[sp], offset);
+    }
     emit(f, ret);
 }
 
