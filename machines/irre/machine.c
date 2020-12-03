@@ -1355,7 +1355,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     {
       // binary arithmetic/logical operations (binop)
       // 1. check if we need to preload rB or rC
-      p = preload(f, p);
+      // 
+      load_reg(f, zreg, &p->q1, t);
       // if (!THREE_ADDR)
       // {
       //   load_reg(f, zreg, &p->q1, t);
