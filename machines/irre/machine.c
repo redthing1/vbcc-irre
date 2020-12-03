@@ -1131,7 +1131,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
             if ((p->q1.flags & (VAR | DREFOBJ)) == VAR && p->q1.v->fi && p->q1.v->fi->inline_asm) {
                 emit_inline_asm(f, p->q1.v->fi->inline_asm);
             } else {
-                emit(f, "\tcall\t");
+                emit(f, "\tcal\t");
                 emit_obj(f, &p->q1, t);
                 emit(f, "\n");
             }
