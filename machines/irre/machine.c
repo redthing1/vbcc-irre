@@ -292,14 +292,16 @@ static void load_reg(FILE *f, int r, struct obj *o, int type)
     // if operand is REG, skip because it would be redundant
     if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r)
       return;
-    
-    if ((o->flags & KONST) > 0) {
+
+    if ((o->flags & KONST) > 0)
+    {
       // constant, use SET
       emit(f, "\tset\t%s\t", regnames[r]);
       emit_obj(f, o, type);
       emit(f, "\n");
     }
-    else {
+    else
+    {
       // use MOV
       emit(f, "\tmov\t%s\t", regnames[r]);
       emit_obj(f, o, type);
@@ -466,7 +468,8 @@ static void emit_obj(FILE *f, struct obj *p, int t)
   }
   else if (p->flags & VAR)
   {
-    if (p->v->storage_class == AUTO || p->v->storage_class == REGISTER) {
+    if (p->v->storage_class == AUTO || p->v->storage_class == REGISTER)
+    {
       // stack offset location
       emit(f, "%s\t#%ld", regnames[sp], real_offset(p));
     }
@@ -1350,12 +1353,19 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     }
     if ((c >= OR && c <= AND) || (c >= LSHIFT && c <= MOD))
     {
+      // arithmetic/logical operations
       if (!THREE_ADDR)
+      {
         load_reg(f, zreg, &p->q1, t);
+      }
       if (c >= OR && c <= AND)
+      {
         emit(f, "\t%s.%s\t%s,", logicals[c - OR], dt(t), regnames[zreg]);
+      }
       else
+      {
         emit(f, "\t%s.%s\t%s,", arithmetics[c - LSHIFT], dt(t), regnames[zreg]);
+      }
       if (THREE_ADDR)
       {
         emit_obj(f, &p->q1, t);
