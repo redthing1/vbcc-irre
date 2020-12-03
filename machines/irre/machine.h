@@ -15,7 +15,7 @@
 */
 
 /* buil-time configurable options: */
-#define NUM_GPRS 27
+#define NUM_GPRS 32
 #define NUM_FPRS 0
 #define NUM_CCRS 0
 #define FIXED_SP 1
