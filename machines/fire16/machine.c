@@ -62,7 +62,7 @@ int regscratch[MAXR+1];
 /* specifies the priority for the register-allocator, if the same
    estimated cost-saving can be obtained by several registers, the
    one with the highest priority will be used */
-int reg_prio[MAXR+1];
+// int reg_prio[MAXR+1];
 
 /* an empty reg-handle representing initial state */
 struct reg_handle empty_reg_handle={0};
