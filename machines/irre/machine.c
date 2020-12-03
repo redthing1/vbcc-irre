@@ -213,6 +213,16 @@ static struct obj *cam(int flags, int base, long offset) {
     return &obj;
 }
 
+/* generate .file title/header */
+void title(FILE *f) {
+    static int done;
+    extern char *inname; /*grmpf*/
+    if (!done && f) {
+        done = 1;
+        emit(f, "\t.file\t\"%s\"\n", inname);
+    }
+}
+
 /* changes to a special section, used for __section() */
 static int special_section(FILE *f, struct Var *v) {
     char *sec;
@@ -974,6 +984,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     for (c = 1; c <= MAXR; c++)
         regs[c] = regsa[c];
     maxpushed = 0;
+
+    title(f);
 
     for (m = p; m; m = m->next) {
         c = m->code;
