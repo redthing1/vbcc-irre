@@ -1353,7 +1353,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
     }
     if ((c >= OR && c <= AND) || (c >= LSHIFT && c <= MOD))
     {
-      // binary arithmetic/logical operations
+      // binary arithmetic/logical operations (binop)
       // 1. check if we need to preload rB or rC
       p = preload(f, p);
       // if (!THREE_ADDR)
