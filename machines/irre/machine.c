@@ -282,8 +282,14 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                 emit(f, "\tmov\t%s\t", regnames[r]);
                 emit_obj(f, o, type);
                 emit(f, "\n");
+            } else if ((o->flags & VAR) > 0) {
+                // source is var, use ldw
+                emit(f, "\tldw\t%s\t", regnames[r]);
+                emit_obj(f, o, type);
+                emit(f, "\n");
             } else {
-              // TODO
+                // unknown
+                ierror(0);
             }
         }
     }
