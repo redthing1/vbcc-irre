@@ -312,9 +312,14 @@ static void load_reg(FILE *f, int r, struct obj *o, int type)
 static void store_reg(FILE *f, int r, struct obj *o, int type)
 {
   type &= NQ;
-  emit(f, "\tmov.%s\t", dt(type));
+  // emit(f, "\tmov.%s\t", dt(type));
+  // emit_obj(f, o, type);
+  // emit(f, ",%s\n", regnames[r]);
+
+  // store register into memory
+  emit(f, "\tstw\t%s\t", regnames[r]);
   emit_obj(f, o, type);
-  emit(f, ",%s\n", regnames[r]);
+  emit(f, "\n");
 }
 
 /*  Yields log2(x)+1 or 0. */
@@ -425,11 +430,13 @@ void save_result(FILE *f, struct IC *p)
   }
   if (isreg(z))
   {
+    // store result reg into register (z)
     if (p->z.reg != zreg)
       emit(f, "\tmov.%s\t%s,%s\n", dt(ztyp(p)), regnames[p->z.reg], regnames[zreg]);
   }
   else
   {
+    // store result reg into object
     store_reg(f, zreg, &p->z, ztyp(p));
   }
 }
