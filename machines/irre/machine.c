@@ -964,6 +964,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             long args_size = zm2l(p->q2.val.vmax);
             emit(f, "\t; sz_passed=%ld\n", args_size);
 
+            // TODO sink the stack to accomodate args?
+
             if ((p->q1.flags & (VAR | DREFOBJ)) == VAR && p->q1.v->fi && p->q1.v->fi->inline_asm) {
                 emit_inline_asm(f, p->q1.v->fi->inline_asm);
             } else {
@@ -989,15 +991,15 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             if (t == 0)
                 ierror(0);
             if (c == PUSH) {
+                // size of the thing pushed
+                long arg_size = zm2l(p->q2.val.vmax);
+                pushed += arg_size; // increase pushed by size of thing pushed
                 // 1. grab the value into a temp reg
                 q1reg = t1;
                 load_reg(f, q1reg, &p->q1, t);
                 // 2. store that temp reg into the stack
-                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], -pushed);
+                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], -(pushed));
                 emit(f, "\n");
-                // size of the thing pushed
-                long arg_size = zm2l(p->q2.val.vmax);
-                pushed += arg_size; // increase pushed by size of thing pushed
                 continue;
             }
             if (c == ASSIGN) {
