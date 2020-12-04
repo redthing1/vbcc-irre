@@ -162,6 +162,10 @@ static void peephole(struct IC *p);
 /* calculate the actual current offset of an object relative to the
    stack-pointer; we use a stack layout like this:
    ------------------------------------------------
+   | arguments to this function                   |
+   ------------------------------------------------
+   <---------- STACK POINTER
+   ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
    | local variables [size=localsize]             |
@@ -182,7 +186,7 @@ static long real_offset(struct obj *o) {
     long dbg1 = off;
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
-        off = off + zm2l(maxalign) - 4;
+        off = localsize + off + zm2l(maxalign) - 4;
     }
     long dbg2 = off;
     off += rsavesize;
