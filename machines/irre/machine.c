@@ -919,10 +919,10 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         if (c >= BEQ && c < BRA) {
             emit(f, "\tb%s\t", ccs[c - BEQ]);
             if (isreg(q1)) {
+                emit(f, "[Q1 IS REG]");
                 emit_obj(f, &p->q1, 0);
-                emit(f, ",");
             }
-            emit(f, "%s%d\n", labprefix, t);
+            emit(f, "::%s%d\n", labprefix, t);
             continue;
         }
         if (c == MOVETOREG) {
