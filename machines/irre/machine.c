@@ -257,8 +257,8 @@ static void load_address(FILE *f, int r, struct obj *o, int type)
     if (o->v->storage_class == AUTO || o->v->storage_class == REGISTER) {
         long off = real_offset(o);
         emit(f, "\tmov.%s\t%s,%s\n", dt(POINTER), regnames[r], regnames[sp]);
-            if (off)
-                emit(f, "\tadd.%s\t%s,%ld\n", dt(POINTER), regnames[r], off);
+        if (off)
+            emit(f, "\tadd.%s\t%s,%ld\n", dt(POINTER), regnames[r], off);
     } else if (o->v->storage_class == EXTERN || o->v->storage_class == STATIC) {
         // pointer address
         emit(f, "\tset\t%s\t", regnames[r]);
@@ -540,7 +540,7 @@ int init_cg(void) {
     // init register stuff
     for (i = FIRST_GPR; i <= LAST_GPR; i++) {
         regsize[i] = l2zm(4L); // 4-byte words
-        regtype[i] = &ltyp; // use default initialization
+        regtype[i] = &ltyp;    // use default initialization
     }
 
     /*  Use multiple ccs.   */
@@ -726,7 +726,7 @@ void gen_ds(FILE *f, zmax size, struct Typ *t)
     if (newobj && section != SPECIAL) {
         // generate bytes of storage
         // TODO: rework this
-        emit(f, "%ld\n", zm2l(size)); // raw number
+        emit(f, "%ld\n", zm2l(size));                        // raw number
         emit(f, "\t%%d \\z %ld\t; zero data\n", zm2l(size)); // zero data directive
     } else
         emit(f, "\t.space\t%ld\n", zm2l(size));
