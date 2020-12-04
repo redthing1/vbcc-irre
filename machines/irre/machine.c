@@ -972,11 +972,11 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             continue;
         }
         if (c == MOVETOREG) {
-            load_reg(f, p->z.reg, &p->q1, regtype[p->z.reg]->flags);
+            load_reg(f, p->z.reg, &p->q1, p->typf);
             continue;
         }
         if (c == MOVEFROMREG) {
-            store_reg(f, p->z.reg, &p->q1, regtype[p->z.reg]->flags);
+            store_reg(f, p->q1.reg, &p->z, p->typf);
             continue;
         }
         if ((c == ASSIGN || c == PUSH) && ((t & NQ) > POINTER || ((t & NQ) == CHAR && zm2l(p->q2.val.vmax) != 1))) {
