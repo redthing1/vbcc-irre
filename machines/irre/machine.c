@@ -961,7 +961,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 #endif
 
             // size of all args pushed
-            long args_size = zm2l(p->q2.val.vmax);
+            long args_size = pushedargsize(p);
             emit(f, "\t; sz_passed=%ld\n", args_size);
 
             // TODO sink the stack to accomodate args?
@@ -992,7 +992,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 ierror(0);
             if (c == PUSH) {
                 // size of the thing pushed
-                long arg_size = zm2l(p->q2.val.vmax);
+                long arg_size = pushsize(p);
                 pushed += arg_size; // increase pushed by size of thing pushed
                 // 1. grab the value into a temp reg
                 q1reg = t1;
