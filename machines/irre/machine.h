@@ -18,7 +18,6 @@
 #define NUM_GPRS 36
 #define NUM_FPRS 0
 #define NUM_CCRS 0
-#define FIXED_SP 0
 
 #include "dt.h"
 
@@ -81,7 +80,7 @@ struct AddressingMode{
 
 /*  Parameters on the stack should be pushed in order rather than   */
 /*  in reverse order.                                               */
-#define ORDERED_PUSH FIXED_SP
+#define ORDERED_PUSH 0
 
 /*  Structure for reg_parm().                                       */
 struct reg_handle{

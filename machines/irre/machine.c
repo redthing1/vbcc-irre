@@ -23,6 +23,8 @@ static char FILE_[] = __FILE__;
 /* Name and copyright. */
 char cg_copyright[] = "IRRE code-generator V0.1a (c) 2020, xdrie";
 
+#define FIXED_SP 1 // fixed sp mode
+
 /*  Commandline-flags the code-generator accepts:
     0: just a flag
     VALFLAG: a value must be specified
@@ -146,9 +148,6 @@ static int exit_label;
 /* assembly-prefixes for labels and external identifiers */
 static char *labprefix = "l", *idprefix = "_";
 
-/* variables to keep track of the moving stack */
-int stackoffset = 0;
-
 static long localsize, rsavesize, argsize;
 
 static void emit_obj(FILE *f, struct obj *p, int t);
@@ -185,11 +184,8 @@ static long real_offset(struct obj *o) {
         off = localsize + rsavesize + 4 - off - zm2l(maxalign);
     }
 
-#if FIXED_SP
     off += argsize;
-#else
-    off += stackoffset;
-#endif
+    
     off += zm2l(o->val.vmax);
     return off;
 }
@@ -232,14 +228,6 @@ static int special_section(FILE *f, struct Var *v) {
     if (f)
         section = SPECIAL;
     return 1;
-}
-
-static void push(long size) {
-    stackoffset -= size;
-}
-
-static void pop(long size) {
-    stackoffset += size;
 }
 
 /* generate code to load the address of a variable into register r */
