@@ -1151,21 +1151,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             if (t == 0)
                 ierror(0);
             if (c == PUSH) {
-#if FIXED_SP
-                emit(f, "\tmov.%s\t%ld(%s),", dt(t), pushed, regnames[sp]);
-                emit_obj(f, &p->q1, t);
+                // 1. grab the value into a temp reg
+                q1reg = t1;
+                load_reg(f, q1reg, &p->q1, t);
+                // 2. store that temp reg into the stack
+                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], pushed);
                 emit(f, "\n");
-                pushed += zm2l(p->q2.val.vmax);
-#else
-                // push a reg
-                // 1. grab the value into zreg
-                load_reg(f, zreg, &p->q1, t);
-                emit(f, "\tpsh\t%s", regnames[zreg]);
-                // emit_obj(f, &p->q1, t);
-                emit(f, "\n");
-                // update our tracking of stack offsets
-                push(zm2l(p->q2.val.vmax));
-#endif
+                pushed += zm2l(p->q2.val.vmax); // increase pushed by size of thing pushed
                 continue;
             }
             if (c == ASSIGN) {
