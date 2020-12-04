@@ -264,6 +264,11 @@ static void load_address(FILE *f, int r, struct obj *o, int type)
             if (off)
                 emit(f, "\tadd.%s\t%s,%ld\n", dt(POINTER), regnames[r], off);
         }
+    } else if (o->v->storage_class == EXTERN || o->v->storage_class == STATIC) {
+        // pointer address
+        emit(f, "\tset\t%s\t", regnames[r]);
+        emit_obj(f, o, type);
+        emit(f, "\n");
     } else {
         emit(f, "\tmov.%s\t%s,", dt(POINTER), regnames[r]);
         emit_obj(f, o, type);
@@ -313,9 +318,23 @@ static void store_reg(FILE *f, int r, struct obj *o, int type) {
     // emit(f, ",%s\n", regnames[r]);
 
     // store register into memory
-    emit(f, "\tstw\t%s\t", regnames[r]);
-    emit_obj(f, o, type);
-    emit(f, "\n");
+    // check dest type
+    if ((o->flags & VAR) > 0) {
+        // dest is var
+        // put the var address in a temp reg
+        load_address(f, at, o, type);
+        emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[at]);
+        emit(f, "\n");
+    } else if ((o->flags & REG) > 0) {
+        // dest is reg
+        emit(f, "\tstw\t%s\t", regnames[r]);
+        emit_obj(f, o, type);
+        emit(f, "\n");
+    } else {
+        // unknown
+        printf("unknown store_reg\n");
+        ierror(0);
+    }
 }
 
 /*  Yields log2(x)+1 or 0. */
