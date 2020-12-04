@@ -36,7 +36,7 @@ int g_flags[MAXGF] = {0, 0, VALFLAG, VALFLAG, VALFLAG, 0, 0, VALFLAG, VALFLAG, 0
 /* the flag-name, do not use names beginning with l, L, I, D or U, because
    they collide with the frontend */
 char *g_flags_name[MAXGF] = {"default-main", "load-store", "volatile-gprs", "volatile-fprs", "volatile-ccrs",
-                             "imm-ind",    "gpr-ind",    "gpr-args",      "fpr-args",      "use-commons"};
+                             "imm-ind",      "gpr-ind",    "gpr-args",      "fpr-args",      "use-commons"};
 
 /* the results of parsing the command-line-flags will be stored here */
 union ppi g_flags_val[MAXGF];
@@ -118,11 +118,11 @@ static struct Typ ltyp = {LONG}, ldbl = {DOUBLE}, lchar = {CHAR};
 static char *marray[] = {"__section(x)=__vattr(\"section(\"#x\")\")", "__GENERIC__", 0};
 
 /* special registers */
-static int sp = 36;          /*  Stackpointer                        */
-static int lr = 33;          /*  Link Register                       */
-static int ad = 34, at = 35; /*  Special Temps                       */
-static int t1 = 2, t2 = 3;   /*  Temporaries used by code generator  */
-static int f1, f2;           /*  Temporaries used by code generator  */
+static int sp = 36;                /*  Stackpointer                        */
+static int lr = 33;                /*  Link Register                       */
+static int ad = 34, at = 35;       /*  Special Temps                       */
+static int t1 = 2, t2 = 3, t3 = 4; /*  Temporaries used by code generator  */
+static int f1, f2;                 /*  Temporaries used by code generator  */
 
 #define dt(t) (((t)&UNSIGNED) ? udt[(t)&NQ] : sdt[(t)&NQ])
 static char *sdt[MAX_TYPE + 1] = {"??", "c", "s", "i", "l", "ll", "f", "d", "ld", "v", "p"};
@@ -198,7 +198,7 @@ static long real_offset(struct obj *o) {
     // }
 
     // off += callee_argsize;
-    
+
     // long v_size = zm2l(o->val.vmax);
     // off += v_size;
     // printf("ro: %ld, as: %ld, sz: %ld\n", off, callee_argsize, v_size);
@@ -548,7 +548,7 @@ int init_cg(void) {
 
     // - reserve registers
     // temporaries
-    regsa[t1] = regsa[t2] = 1;
+    regsa[t1] = regsa[t2] = regsa[t3] = 1;
     regsa[f1] = regsa[f2] = 1;
     // special regs
     regsa[lr] = 1;
@@ -809,7 +809,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 {
     int c, t, i;
     struct IC *m;
-    Var* func_var = v;
+    Var *func_var = v;
     callee_argsize = 0;
     if (DEBUG & 1)
         printf("gen_code()\n");
@@ -1136,7 +1136,6 @@ void cleanup_db(FILE *f) {
     if (f)
         section = -1;
 }
-
 
 /*  Test if there is a sequence of FREEREGs containing FREEREG reg.
     Used by peephole. */
