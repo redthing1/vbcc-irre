@@ -111,7 +111,7 @@ static long malign[MAX_TYPE + 1] = {1, 1, 2, 4, 4, 4, 4, 8, 8, 1, 4, 1, 1, 1, 4,
 /* sizes of basic data-types, used to initialize sizetab[] */
 static long msizetab[MAX_TYPE + 1] = {1, 1, 2, 4, 4, 8, 4, 8, 8, 0, 4, 0, 0, 0, 4, 0};
 
-/* used to initialize regtyp[] */
+/* used to initialize regtype[] */
 static struct Typ ltyp = {LONG}, ldbl = {DOUBLE}, lchar = {CHAR};
 
 /* macros defined by the backend */
@@ -540,6 +540,12 @@ int init_cg(void) {
     for (i = 0; i <= MAX_TYPE; i++) {
         sizetab[i] = l2zm(msizetab[i]);
         align[i] = l2zm(malign[i]);
+    }
+
+    // init register stuff
+    for (i = FIRST_GPR; i <= LAST_GPR; i++) {
+        regsize[i] = l2zm(4L); // 4-byte words
+        regtype[i] = &ltyp; // use default initialization
     }
 
     /*  Use multiple ccs.   */
