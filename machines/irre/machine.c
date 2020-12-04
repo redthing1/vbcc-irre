@@ -185,7 +185,7 @@ static long real_offset(struct obj *o) {
         off = off + zm2l(maxalign) - 4;
         printf(", nga: %ld", off);
     }
-    off += callee_argsize;
+    off += rsavesize;
     off += v_size;
     printf(", ca: %ld, vs: %ld, adj: %ld", callee_argsize, v_size, off);
     printf("\n");
@@ -873,9 +873,10 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
     // calculate word-aligned frame offset
     localsize = (zm2l(frame_offset) + 3) / 4 * 4;
+    long above_stk_size = localsize + rsavesize;
 
-    function_top(f, v, localsize);
-    emit(f, "\t; loc_sz=%lu, cs_sz=%lu\n", localsize, callee_argsize);
+    function_top(f, v, above_stk_size);
+    emit(f, "\t; loc_sz=%lu, rs_sz=%lu, ce_sz=-%lu\n", localsize, rsavesize, callee_argsize);
 
     // no callee args have been pushed yet
     pushed = 0;
@@ -1093,7 +1094,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         ierror(0);
     }
 
-    function_bottom(f, v, localsize);
+    function_bottom(f, v, above_stk_size);
     // if (stack_valid) {
     //     if (!v->fi)
     //         v->fi = new_fi();
