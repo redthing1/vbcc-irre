@@ -137,7 +137,7 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 // static long stack;
 // static int stack_valid;
 static int section = -1, newobj;
-static char *codename = "\t.text\n", *dataname = "\t.data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
+static char *codename = "\t; .text\n", *dataname = "\t.data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
 
 /* return-instruction */
 static char *ret = "\tret\n";
@@ -222,7 +222,7 @@ void title(FILE *f) {
     extern char *inname; /*grmpf*/
     if (!done && f) {
         done = 1;
-        emit(f, "\t.file\t\"%s\"\n", inname);
+        emit(f, "\t; .file\t\"%s\"\n", inname);
     }
 }
 
@@ -469,7 +469,7 @@ static void function_top(FILE *f, struct Var *v, long offset) {
     }
     if (v->storage_class == EXTERN) {
         if ((v->flags & (INLINEFUNC | INLINEEXT)) != INLINEFUNC)
-            emit(f, "\t.global\t%s%s\n", idprefix, v->identifier);
+            emit(f, "\t; .global\t%s%s\n", idprefix, v->identifier);
         emit(f, "%s%s:\n", idprefix, v->identifier);
     } else
         emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
@@ -870,6 +870,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
     localsize = (zm2l(frame_offset) + 3) / 4 * 4;
 
     function_top(f, v, localsize);
+    emit(f, "\t; loc_sz=%lu, cs_sz=%lu\n", localsize, callee_argsize);
 
     // no callee args have been pushed yet
     pushed = 0;
@@ -1083,8 +1084,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         pric2(stdout, p);
         ierror(0);
     }
+
     function_bottom(f, v, localsize);
-    emit(f, "; localsize=%lu\n", zum2ul(localsize));
     // if (stack_valid) {
     //     if (!v->fi)
     //         v->fi = new_fi();
