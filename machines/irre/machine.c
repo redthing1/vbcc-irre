@@ -135,6 +135,9 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 #define RODATA 3
 #define SPECIAL 4
 
+/* helpers */
+#define objvar_raw_offset(o) (o->v->offset)
+
 // static long stack;
 // static int stack_valid;
 static int section = -1, newobj;
@@ -181,7 +184,7 @@ static void peephole(struct IC *p);
 */
 
 static long real_offset(struct obj *o) {
-    long off = zm2l(o->v->offset);
+    long off = objvar_raw_offset(o);
     long dbg1 = off;
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
@@ -502,6 +505,13 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
         if (p->v->storage_class == AUTO || p->v->storage_class == REGISTER) {
             // stack offset location
             emit(f, "%s\t#%ld", regnames[sp], real_offset(p));
+            // is it an arg passed to this function?
+            if (objvar_raw_offset(p) < 0) {
+                // TODO: can we improve this? this hardcodes arg size
+                long argi = (objvar_raw_offset(p) + zm2l(maxalign)) / 4;
+                emit(f, "\t; arg_%ld", argi);
+            }
+            
         } else {
             if (p->v->storage_class == STATIC) {
                 emit(f, "::%s[??]%ld", labprefix, zm2l(p->v->offset));
@@ -1099,7 +1109,9 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 q1reg = t1;
                 load_reg(f, q1reg, &p->q1, t);
                 // 2. store that temp reg into the stack
-                emit(f, "\tstw\t%s\t%s\t#%ld\t; arg_%ld", regnames[q1reg], regnames[sp], pushed, pushed);
+                // TODO: argi hardcodes arg size
+                long argi = pushed / 4;
+                emit(f, "\tstw\t%s\t%s\t#%ld\t; arg_%ld", regnames[q1reg], regnames[sp], pushed, argi);
                 emit(f, "\n");
                 pushed += arg_size; // increase pushed by size of thing pushed
                 continue;
