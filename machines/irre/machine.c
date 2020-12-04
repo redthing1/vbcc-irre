@@ -738,11 +738,11 @@ void gen_var_head(FILE *f, struct Var *v)
             gen_align(f, falign(v->vtyp));
             emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
         } else
-            emit(f, "\t.lcomm\t%s%ld,", labprefix, zm2l(v->offset));
+            emit(f, "\t; .lcomm\t%s%ld,", labprefix, zm2l(v->offset));
         newobj = 1;
     }
     if (v->storage_class == EXTERN) {
-        emit(f, "\t.globl\t%s%s\n", idprefix, v->identifier);
+        emit(f, "\t; .globl\t%s%s\n", idprefix, v->identifier);
         if (v->flags & (DEFINED | TENTATIVE)) {
             if (!special_section(f, v)) {
                 if (v->clist && (!constflag || (g_flags[2] & USEDFLAG)) && section != DATA) {
@@ -765,7 +765,8 @@ void gen_var_head(FILE *f, struct Var *v)
                 gen_align(f, falign(v->vtyp));
                 emit(f, "%s%s:\n", idprefix, v->identifier);
             } else
-                emit(f, "\t.global\t%s%s\n\t.%scomm\t%s%s,", idprefix, v->identifier, (USE_COMMONS ? "" : "l"),
+                // .global, .lcomm
+                emit(f, "\t; .global\t%s%s\n\t; .%scomm\t%s%s,", idprefix, v->identifier, (USE_COMMONS ? "" : "l"),
                      idprefix, v->identifier);
             newobj = 1;
         }
