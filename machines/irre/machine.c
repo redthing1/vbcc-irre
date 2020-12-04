@@ -159,11 +159,9 @@ static void emit_obj(FILE *f, struct obj *p, int t);
 static void peephole(struct IC *p);
 
 /* calculate the actual current offset of an object relativd to the
-   stack-pointer; we use a layout like this:
+   stack-pointer; we use a stack layout like this:
    ------------------------------------------------
    | arguments to this function                   |
-   ------------------------------------------------
-   | return-address [size=4]                      |
    ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
