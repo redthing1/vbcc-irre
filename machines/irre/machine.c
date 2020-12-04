@@ -155,6 +155,9 @@ static long localsize, rsavesize, argsize;
 
 static void emit_obj(FILE *f, struct obj *p, int t);
 
+// optimization crap
+static void peephole(struct IC *p);
+
 /* calculate the actual current offset of an object relativd to the
    stack-pointer; we use a layout like this:
    ------------------------------------------------
@@ -443,175 +446,6 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
     }
     if (p->flags & DREFOBJ)
         emit(f, ")");
-}
-
-/*  Test if there is a sequence of FREEREGs containing FREEREG reg.
-    Used by peephole. */
-static int exists_freereg(struct IC *p, int reg) {
-    while (p && (p->code == FREEREG || p->code == ALLOCREG)) {
-        if (p->code == FREEREG && p->q1.reg == reg)
-            return 1;
-        p = p->next;
-    }
-    return 0;
-}
-
-/* search for possible addressing-modes */
-static void peephole(struct IC *p) {
-    int c, c2, r;
-    struct IC *p2;
-    struct AddressingMode *am;
-
-    for (; p; p = p->next) {
-        c = p->code;
-        if (c != FREEREG && c != ALLOCREG && (c != SETRETURN || !isreg(q1) || p->q1.reg != p->z.reg))
-            exit_label = 0;
-        if (c == LABEL)
-            exit_label = p->typf;
-
-        /* Try const(reg) */
-        if (IMM_IND && (c == ADDI2P || c == SUBIFP) && isreg(z) && (p->q2.flags & (KONST | DREFOBJ)) == KONST) {
-            int base;
-            zmax of;
-            struct obj *o;
-            eval_const(&p->q2.val, p->typf);
-            if (c == SUBIFP)
-                of = zmsub(l2zm(0L), vmax);
-            else
-                of = vmax;
-            if (1 /*zmleq(l2zm(-32768L),vmax)&&zmleq(vmax,l2zm(32767L))*/) {
-                r = p->z.reg;
-                if (isreg(q1))
-                    base = p->q1.reg;
-                else
-                    base = r;
-                o = 0;
-                for (p2 = p->next; p2; p2 = p2->next) {
-                    c2 = p2->code;
-                    if (c2 == CALL || c2 == LABEL || (c2 >= BEQ && c2 <= BRA))
-                        break;
-                    if (c2 != FREEREG && (p2->q1.flags & (REG | DREFOBJ)) == REG && p2->q1.reg == r)
-                        break;
-                    if (c2 != FREEREG && (p2->q2.flags & (REG | DREFOBJ)) == REG && p2->q2.reg == r)
-                        break;
-                    if (c2 != CALL && (c2 < LABEL || c2 > BRA) /*&&c2!=ADDRESS*/) {
-                        if (!p2->q1.am && (p2->q1.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q1.reg == r) {
-                            if (o)
-                                break;
-                            o = &p2->q1;
-                        }
-                        if (!p2->q2.am && (p2->q2.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q2.reg == r) {
-                            if (o)
-                                break;
-                            o = &p2->q2;
-                        }
-                        if (!p2->z.am && (p2->z.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->z.reg == r) {
-                            if (o)
-                                break;
-                            o = &p2->z;
-                        }
-                    }
-                    if (c2 == FREEREG || (p2->z.flags & (REG | DREFOBJ)) == REG) {
-                        int m;
-                        if (c2 == FREEREG)
-                            m = p2->q1.reg;
-                        else
-                            m = p2->z.reg;
-                        if (m == r) {
-                            if (o) {
-                                o->am = am = mymalloc(sizeof(*am));
-                                am->flags = IMM_IND;
-                                am->base = base;
-                                am->offset = zm2l(of);
-                                if (isreg(q1)) {
-                                    p->code = c = NOP;
-                                    p->q1.flags = p->q2.flags = p->z.flags = 0;
-                                } else {
-                                    p->code = c = ASSIGN;
-                                    p->q2.flags = 0;
-                                    p->typf = p->typf2;
-                                    p->q2.val.vmax = sizetab[p->typf2 & NQ];
-                                }
-                            }
-                            break;
-                        }
-                        if (c2 != FREEREG && m == base)
-                            break;
-                        continue;
-                    }
-                }
-            }
-        }
-        /* Try reg,reg */
-        if (GPR_IND && c == ADDI2P && isreg(q2) && isreg(z) && (isreg(q1) || p->q2.reg != p->z.reg)) {
-            int base, idx;
-            struct obj *o;
-            r = p->z.reg;
-            idx = p->q2.reg;
-            if (isreg(q1))
-                base = p->q1.reg;
-            else
-                base = r;
-            o = 0;
-            for (p2 = p->next; p2; p2 = p2->next) {
-                c2 = p2->code;
-                if (c2 == CALL || c2 == LABEL || (c2 >= BEQ && c2 <= BRA))
-                    break;
-                if (c2 != FREEREG && (p2->q1.flags & (REG | DREFOBJ)) == REG && p2->q1.reg == r)
-                    break;
-                if (c2 != FREEREG && (p2->q2.flags & (REG | DREFOBJ)) == REG && p2->q2.reg == r)
-                    break;
-                if ((p2->z.flags & (REG | DREFOBJ)) == REG && p2->z.reg == idx && idx != r)
-                    break;
-
-                if (c2 != CALL && (c2 < LABEL || c2 > BRA) /*&&c2!=ADDRESS*/) {
-                    if (!p2->q1.am && (p2->q1.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q1.reg == r) {
-                        if (o || (q1typ(p2) & NQ) == LLONG)
-                            break;
-                        o = &p2->q1;
-                    }
-                    if (!p2->q2.am && (p2->q2.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q2.reg == r) {
-                        if (o || (q2typ(p2) & NQ) == LLONG)
-                            break;
-                        o = &p2->q2;
-                    }
-                    if (!p2->z.am && (p2->z.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->z.reg == r) {
-                        if (o || (ztyp(p2) & NQ) == LLONG)
-                            break;
-                        o = &p2->z;
-                    }
-                }
-                if (c2 == FREEREG || (p2->z.flags & (REG | DREFOBJ)) == REG) {
-                    int m;
-                    if (c2 == FREEREG)
-                        m = p2->q1.reg;
-                    else
-                        m = p2->z.reg;
-                    if (m == r) {
-                        if (o) {
-                            o->am = am = mymalloc(sizeof(*am));
-                            am->flags = GPR_IND;
-                            am->base = base;
-                            am->offset = idx;
-                            if (isreg(q1)) {
-                                p->code = c = NOP;
-                                p->q1.flags = p->q2.flags = p->z.flags = 0;
-                            } else {
-                                p->code = c = ASSIGN;
-                                p->q2.flags = 0;
-                                p->typf = p->typf2;
-                                p->q2.val.vmax = sizetab[p->typf2 & NQ];
-                            }
-                        }
-                        break;
-                    }
-                    if (c2 != FREEREG && m == base)
-                        break;
-                    continue;
-                }
-            }
-        }
-    }
 }
 
 /* generates the function entry code */
@@ -1266,4 +1100,174 @@ void cleanup_cg(FILE *f) {}
 void cleanup_db(FILE *f) {
     if (f)
         section = -1;
+}
+
+
+/*  Test if there is a sequence of FREEREGs containing FREEREG reg.
+    Used by peephole. */
+static int exists_freereg(struct IC *p, int reg) {
+    while (p && (p->code == FREEREG || p->code == ALLOCREG)) {
+        if (p->code == FREEREG && p->q1.reg == reg)
+            return 1;
+        p = p->next;
+    }
+    return 0;
+}
+
+/* search for possible addressing-modes */
+static void peephole(struct IC *p) {
+    int c, c2, r;
+    struct IC *p2;
+    struct AddressingMode *am;
+
+    for (; p; p = p->next) {
+        c = p->code;
+        if (c != FREEREG && c != ALLOCREG && (c != SETRETURN || !isreg(q1) || p->q1.reg != p->z.reg))
+            exit_label = 0;
+        if (c == LABEL)
+            exit_label = p->typf;
+
+        /* Try const(reg) */
+        if (IMM_IND && (c == ADDI2P || c == SUBIFP) && isreg(z) && (p->q2.flags & (KONST | DREFOBJ)) == KONST) {
+            int base;
+            zmax of;
+            struct obj *o;
+            eval_const(&p->q2.val, p->typf);
+            if (c == SUBIFP)
+                of = zmsub(l2zm(0L), vmax);
+            else
+                of = vmax;
+            if (1 /*zmleq(l2zm(-32768L),vmax)&&zmleq(vmax,l2zm(32767L))*/) {
+                r = p->z.reg;
+                if (isreg(q1))
+                    base = p->q1.reg;
+                else
+                    base = r;
+                o = 0;
+                for (p2 = p->next; p2; p2 = p2->next) {
+                    c2 = p2->code;
+                    if (c2 == CALL || c2 == LABEL || (c2 >= BEQ && c2 <= BRA))
+                        break;
+                    if (c2 != FREEREG && (p2->q1.flags & (REG | DREFOBJ)) == REG && p2->q1.reg == r)
+                        break;
+                    if (c2 != FREEREG && (p2->q2.flags & (REG | DREFOBJ)) == REG && p2->q2.reg == r)
+                        break;
+                    if (c2 != CALL && (c2 < LABEL || c2 > BRA) /*&&c2!=ADDRESS*/) {
+                        if (!p2->q1.am && (p2->q1.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q1.reg == r) {
+                            if (o)
+                                break;
+                            o = &p2->q1;
+                        }
+                        if (!p2->q2.am && (p2->q2.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q2.reg == r) {
+                            if (o)
+                                break;
+                            o = &p2->q2;
+                        }
+                        if (!p2->z.am && (p2->z.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->z.reg == r) {
+                            if (o)
+                                break;
+                            o = &p2->z;
+                        }
+                    }
+                    if (c2 == FREEREG || (p2->z.flags & (REG | DREFOBJ)) == REG) {
+                        int m;
+                        if (c2 == FREEREG)
+                            m = p2->q1.reg;
+                        else
+                            m = p2->z.reg;
+                        if (m == r) {
+                            if (o) {
+                                o->am = am = mymalloc(sizeof(*am));
+                                am->flags = IMM_IND;
+                                am->base = base;
+                                am->offset = zm2l(of);
+                                if (isreg(q1)) {
+                                    p->code = c = NOP;
+                                    p->q1.flags = p->q2.flags = p->z.flags = 0;
+                                } else {
+                                    p->code = c = ASSIGN;
+                                    p->q2.flags = 0;
+                                    p->typf = p->typf2;
+                                    p->q2.val.vmax = sizetab[p->typf2 & NQ];
+                                }
+                            }
+                            break;
+                        }
+                        if (c2 != FREEREG && m == base)
+                            break;
+                        continue;
+                    }
+                }
+            }
+        }
+        /* Try reg,reg */
+        if (GPR_IND && c == ADDI2P && isreg(q2) && isreg(z) && (isreg(q1) || p->q2.reg != p->z.reg)) {
+            int base, idx;
+            struct obj *o;
+            r = p->z.reg;
+            idx = p->q2.reg;
+            if (isreg(q1))
+                base = p->q1.reg;
+            else
+                base = r;
+            o = 0;
+            for (p2 = p->next; p2; p2 = p2->next) {
+                c2 = p2->code;
+                if (c2 == CALL || c2 == LABEL || (c2 >= BEQ && c2 <= BRA))
+                    break;
+                if (c2 != FREEREG && (p2->q1.flags & (REG | DREFOBJ)) == REG && p2->q1.reg == r)
+                    break;
+                if (c2 != FREEREG && (p2->q2.flags & (REG | DREFOBJ)) == REG && p2->q2.reg == r)
+                    break;
+                if ((p2->z.flags & (REG | DREFOBJ)) == REG && p2->z.reg == idx && idx != r)
+                    break;
+
+                if (c2 != CALL && (c2 < LABEL || c2 > BRA) /*&&c2!=ADDRESS*/) {
+                    if (!p2->q1.am && (p2->q1.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q1.reg == r) {
+                        if (o || (q1typ(p2) & NQ) == LLONG)
+                            break;
+                        o = &p2->q1;
+                    }
+                    if (!p2->q2.am && (p2->q2.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->q2.reg == r) {
+                        if (o || (q2typ(p2) & NQ) == LLONG)
+                            break;
+                        o = &p2->q2;
+                    }
+                    if (!p2->z.am && (p2->z.flags & (REG | DREFOBJ)) == (REG | DREFOBJ) && p2->z.reg == r) {
+                        if (o || (ztyp(p2) & NQ) == LLONG)
+                            break;
+                        o = &p2->z;
+                    }
+                }
+                if (c2 == FREEREG || (p2->z.flags & (REG | DREFOBJ)) == REG) {
+                    int m;
+                    if (c2 == FREEREG)
+                        m = p2->q1.reg;
+                    else
+                        m = p2->z.reg;
+                    if (m == r) {
+                        if (o) {
+                            o->am = am = mymalloc(sizeof(*am));
+                            am->flags = GPR_IND;
+                            am->base = base;
+                            am->offset = idx;
+                            if (isreg(q1)) {
+                                p->code = c = NOP;
+                                p->q1.flags = p->q2.flags = p->z.flags = 0;
+                            } else {
+                                p->code = c = ASSIGN;
+                                p->q2.flags = 0;
+                                p->typf = p->typf2;
+                                p->q2.val.vmax = sizetab[p->typf2 & NQ];
+                            }
+                        }
+                        break;
+                    }
+                    if (c2 != FREEREG && m == base)
+                        break;
+                    continue;
+                }
+            }
+        }
+    }
 }
