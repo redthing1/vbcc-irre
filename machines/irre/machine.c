@@ -1074,23 +1074,21 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             q2reg = t2;
             load_reg(f, q1reg, &p->q1, t);
             load_reg(f, q2reg, &p->q2, t);
-            // dest reg
-            zreg = p->z.reg;
-            // if (!THREE_ADDR)
-            // {
-            //   load_reg(f, zreg, &p->q1, t);
-            // }
+
+            // select dest reg
+            if ((p->z.flags & REG) > 0) {
+                // if dest is already a register, go directly
+                zreg = p->z.reg;
+            } else {
+                // dest isn't a reg, use a temp
+                zreg = t3;
+            }
+
             if (c >= OR && c <= AND) {
-                emit(f, "\t%s\t%s,", logicals[c - OR], regnames[zreg]);
+                emit(f, "\t%s\t%s\t%s\t%s", logicals[c - OR], regnames[zreg], regnames[q1reg], regnames[q2reg]);
             } else {
                 emit(f, "\t%s\t%s\t%s\t%s", arithmetics[c - LSHIFT], regnames[zreg], regnames[q1reg], regnames[q2reg]);
             }
-            // if (THREE_ADDR)
-            // {
-            //   emit_obj(f, &p->q1, t);
-            //   emit(f, ",");
-            // }
-            // emit_obj(f, &p->q2, t);
             emit(f, "\n");
             save_result(f, p);
             continue;
