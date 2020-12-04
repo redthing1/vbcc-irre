@@ -901,12 +901,15 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             continue;
         }
         if (c == BRA) {
-            // use AT to store jump target
-            emit(f, "\tset\tat\t");
+            // // use AT to store jump target
+            // emit(f, "\tset\tat\t");
+            // emit(f, "::%s%d", labprefix, t);
+            // emit(f, "\n");
+            // emit(f, "\tjmp\tat");
+            // emit(f, "\n");
+            // use JMI to directly jump
+            emit(f, "\tjmi\t");
             emit(f, "::%s%d", labprefix, t);
-            emit(f, "\n");
-            // use unconditional JMP
-            emit(f, "\tjmp\tat");
             emit(f, "\n");
             // if (0 /*t==exit_label&&framesize==0*/)
             //     emit(f, ret);
