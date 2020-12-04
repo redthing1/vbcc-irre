@@ -292,10 +292,19 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
             emit(f, "\n");
         } else {
             if ((o->flags & REG) > 0) {
-                // source is register, use MOV
-                emit(f, "\tmov\t%s\t", regnames[r]);
-                emit_obj(f, o, type);
-                emit(f, "\n");
+                // source is register
+                // check if it needs to be dereferenced
+                if ((o->flags & DREFOBJ) > 0) {
+                    // we need to dereference reg val
+                    // so use LDW
+                    emit(f, "\tldw\t%s\t%s\t#0", regnames[r], regnames[o->reg]);
+                    emit(f, "\n");
+                } else {
+                    // we can MOV value from register
+                    emit(f, "\tmov\t%s\t", regnames[r]);
+                    emit_obj(f, o, type);
+                    emit(f, "\n");
+                }
             } else if ((o->flags & VAR) > 0) {
                 // source is var, use ldw
                 if (o->v->storage_class == EXTERN || o->v->storage_class == STATIC) {
@@ -484,8 +493,9 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
         emitval(f, &p->val, p->dtyp & NU);
         return;
     }
-    if (p->flags & DREFOBJ)
+    if (p->flags & DREFOBJ) {
         emit(f, "(");
+    }
     if (p->flags & REG) {
         emit(f, "%s", regnames[p->reg]);
     } else if (p->flags & VAR) {
