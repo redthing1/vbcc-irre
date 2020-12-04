@@ -35,7 +35,7 @@ int g_flags[MAXGF] = {0, 0, VALFLAG, VALFLAG, VALFLAG, 0, 0, VALFLAG, VALFLAG, 0
 
 /* the flag-name, do not use names beginning with l, L, I, D or U, because
    they collide with the frontend */
-char *g_flags_name[MAXGF] = {"three-addr", "load-store", "volatile-gprs", "volatile-fprs", "volatile-ccrs",
+char *g_flags_name[MAXGF] = {"default-main", "load-store", "volatile-gprs", "volatile-fprs", "volatile-ccrs",
                              "imm-ind",    "gpr-ind",    "gpr-args",      "fpr-args",      "use-commons"};
 
 /* the results of parsing the command-line-flags will be stored here */
@@ -94,7 +94,8 @@ char *g_attr_name[] = {"__interrupt", 0};
 /*  Private data and functions.         */
 /****************************************/
 
-#define THREE_ADDR (g_flags[0] & USEDFLAG)
+#define THREE_ADDR 0
+#define DEFAULT_MAIN (g_flags[0] & USEDFLAG)
 #define LOAD_STORE (g_flags[1] & USEDFLAG)
 #define VOL_GPRS ((g_flags[2] & USEDFLAG) ? g_flags_val[2].l : NUM_GPRS / 2)
 #define VOL_FPRS ((g_flags[3] & USEDFLAG) ? g_flags_val[3].l : NUM_FPRS / 2)
@@ -222,6 +223,10 @@ void title(FILE *f) {
     extern char *inname; /*grmpf*/
     if (!done && f) {
         done = 1;
+        if (DEFAULT_MAIN) {
+            printf("setting default _main.\n");
+            emit(f, "%%entry: _main\n");
+        }
         emit(f, "\t; .file\t\"%s\"\n", inname);
     }
 }
