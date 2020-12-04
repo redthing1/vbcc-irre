@@ -134,8 +134,8 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 #define RODATA 3
 #define SPECIAL 4
 
-static long stack;
-static int stack_valid;
+// static long stack;
+// static int stack_valid;
 static int section = -1, newobj;
 static char *codename = "\t.text\n", *dataname = "\t.data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
 
@@ -169,13 +169,10 @@ static void emit_obj(FILE *f, struct obj *p, int t);
    | arguments to called functions [size=argsize] |
    ------------------------------------------------
    All sizes will be aligned as necessary.
-   In the case of FIXED_SP, the stack-pointer will be adjusted at
+   In the case of a fixed stack pointer, the stack-pointer will be adjusted at
    function-entry to leave enough space for the arguments and have it
    aligned to 16 bytes. Therefore, when calling a function, the
    stack-pointer is always aligned to 16 bytes.
-   For a moving stack-pointer, the stack-pointer will usually point
-   to the bottom of the area for local variables, but will move while
-   arguments are put on the stack.
 
    This is just an example layout. Other layouts are also possible.
 */
@@ -1029,9 +1026,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
     function_top(f, v, localsize);
 
-#if FIXED_SP
+    // no callee args have been pushed yet
     pushed = 0;
-#endif
 
     for (; p; p = p->next) {
         c = p->code;
@@ -1243,13 +1239,14 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         ierror(0);
     }
     function_bottom(f, v, localsize);
-    if (stack_valid) {
-        if (!v->fi)
-            v->fi = new_fi();
-        v->fi->flags |= ALL_STACK;
-        v->fi->stack1 = stack;
-    }
-    emit(f, "# stacksize=%lu%s\n", zum2ul(stack), stack_valid ? "" : "+??");
+    emit(f, "; localsize=%lu\n", zum2ul(localsize));
+    // if (stack_valid) {
+    //     if (!v->fi)
+    //         v->fi = new_fi();
+    //     v->fi->flags |= ALL_STACK;
+    //     v->fi->stack1 = stack; // ??
+    // }
+    // emit(f, "# stacksize=%lu%s\n", zum2ul(stack), stack_valid ? "" : "+??");
 }
 
 int shortcut(int code, int typ) { return 0; }
