@@ -441,8 +441,9 @@ void save_result(FILE *f, struct IC *p) {
     }
     if (isreg(z)) {
         // store result reg into register (z)
-        if (p->z.reg != zreg)
-            emit(f, "\tmov.%s\t%s,%s\n", dt(ztyp(p)), regnames[p->z.reg], regnames[zreg]);
+        if (p->z.reg != zreg) {
+            emit(f, "\tmov\t%s\t%s\n", regnames[p->z.reg], regnames[zreg]);
+        }
     } else {
         // store result reg into object
         store_reg(f, zreg, &p->z, ztyp(p));
