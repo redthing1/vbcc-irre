@@ -1049,13 +1049,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             continue;
         }
         if (c == TEST) {
-            emit(f, "\ttst.%s\t", dt(t));
-            if (multiple_ccs)
-                emit(f, "%s,", regnames[zreg]);
-            emit_obj(f, &p->q1, t);
-            emit(f, "\n");
-            if (multiple_ccs)
-                save_result(f, p);
+            // put zero into AT
+            emit(f, "\tset\tat\t#0\n");
+            // grab the q1 into temp reg
+            q1reg = t1;
+            load_reg(f, q1reg, &p->q1, t);
+            // tcu AD q1 #0
+            emit(f, "\ttcu\tad\t%s\tat\n", regnames[q1reg]);
             continue;
         }
         if (c == COMPARE) {
