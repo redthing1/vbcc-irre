@@ -148,6 +148,9 @@ static int exit_label;
 /* assembly-prefixes for labels and external identifiers */
 static char *labprefix = "l", *idprefix = "_";
 
+/* stuff to keep track of the stack */
+static long pushed; // callee args that have been pushed
+
 static long localsize, rsavesize, argsize;
 
 static void emit_obj(FILE *f, struct obj *p, int t);
@@ -1007,10 +1010,11 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 }
             }
         }
-#if FIXED_SP
+        // if there are any function calls
+        // set argsize (the size of args sent to called functions)
+        // to the highest offset needed to pass args
         if (c == CALL && argsize < zm2l(m->q2.val.vmax))
             argsize = zm2l(m->q2.val.vmax);
-#endif
     }
     peephole(p);
 
