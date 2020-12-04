@@ -186,12 +186,13 @@ static long real_offset(struct obj *o) {
     long dbg1 = off;
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
-        off = localsize + off + zm2l(maxalign) - 4;
+        off = off + zm2l(maxalign) - 4;
     }
     long dbg2 = off;
     off += rsavesize;
     off += v_size;
-    // printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
+    off += callee_argsize;
+    printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
     return off;
     // if (off < 0) {
     //     /* function parameter */
