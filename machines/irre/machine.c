@@ -196,7 +196,7 @@ static long real_offset(struct obj *o) {
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
         // this is a parameter
-        off = localsize + rsavesize + RETURN_ADDR_SIZE - off - zm2l(maxalign);
+        off = localsize + rsavesize - off - zm2l(maxalign);
     }
     long dbg2 = off;
     off += callee_argsize;
