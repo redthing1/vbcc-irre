@@ -325,18 +325,18 @@ static void store_reg(FILE *f, int r, struct obj *o, int type) {
     // emit(f, ",%s\n", regnames[r]);
 
     // store register into memory
-    // check dest type
-    if ((o->flags & VAR) > 0) {
-        // dest is var
+    // check storage type
+    if (o->v->storage_class == AUTO || o->v->storage_class == REGISTER) {
+        // dest is reg
+        emit(f, "\tstw\t%s\t", regnames[r]);
+        emit_obj(f, o, type);
+        emit(f, "\n");
+    } else if (o->v->storage_class == STATIC || o->v->storage_class == EXTERN) {
+        // dest is static/extern
         // put the var address in a temp reg
         load_address(f, at, o, type);
         // TODO: maybe don't use AT, use temp instead
         emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[at]);
-        emit(f, "\n");
-    } else if ((o->flags & REG) > 0) {
-        // dest is reg
-        emit(f, "\tstw\t%s\t", regnames[r]);
-        emit_obj(f, o, type);
         emit(f, "\n");
     } else {
         // unknown
