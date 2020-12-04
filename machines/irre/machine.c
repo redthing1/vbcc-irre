@@ -722,9 +722,12 @@ void gen_ds(FILE *f, zmax size, struct Typ *t)
 /*  This function has to create <size> bytes of storage */
 /*  initialized with zero.                              */
 {
-    if (newobj && section != SPECIAL)
-        emit(f, "%ld\n", zm2l(size));
-    else
+    if (newobj && section != SPECIAL) {
+        // generate bytes of storage
+        // TODO: rework this
+        emit(f, "%ld\n", zm2l(size)); // raw number
+        emit(f, "\t%%d \\z %ld\t; zero data\n", zm2l(size)); // zero data directive
+    } else
         emit(f, "\t.space\t%ld\n", zm2l(size));
     newobj = 0;
 }
@@ -799,8 +802,7 @@ void gen_var_head(FILE *f, struct Var *v)
             } else {
                 // .global
                 emit(f, "\t; .global\t%s%s\n", idprefix, v->identifier);
-                // TODO is this appropriate
-                // generate a fake varlabel
+                // make variable label
                 emit(f, "\t %s%s:\t; global variable\n", idprefix, v->identifier);
                 // commons (.lcomm, etc.)
                 char *commons_pfx = (USE_COMMONS ? "" : "l");
