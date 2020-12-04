@@ -124,6 +124,9 @@ static int ad = 34, at = 35;       /*  Special Temps                       */
 static int t1 = 2, t2 = 3, t3 = 4; /*  Temporaries used by code generator  */
 static int f1, f2;                 /*  Temporaries used by code generator  */
 
+/* special constants */
+#define RETURN_ADDR_SIZE 4
+
 #define dt(t) (((t)&UNSIGNED) ? udt[(t)&NQ] : sdt[(t)&NQ])
 static char *sdt[MAX_TYPE + 1] = {"??", "c", "s", "i", "l", "ll", "f", "d", "ld", "v", "p"};
 static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d", "ld", "v", "p"};
@@ -168,6 +171,8 @@ static void peephole(struct IC *p);
    ------------------------------------------------
    | arguments to this function                   |
    ------------------------------------------------
+   | return-address [size=4]                      |
+   ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
    | local variables [size=localsize]             |
@@ -189,9 +194,10 @@ static long real_offset(struct obj *o) {
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
         // this is a parameter
-        off = localsize + rsavesize - off - zm2l(maxalign);
+        off = localsize + rsavesize + RETURN_ADDR_SIZE - off - zm2l(maxalign);
     }
     long dbg2 = off;
+    off += RETURN_ADDR_SIZE;
     off += callee_argsize;
     off += v_size;
     printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
@@ -956,7 +962,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
     // calculate word-aligned frame offset
     localsize = (zm2l(frame_offset) + 3) / 4 * 4;
-    long stk_lower_size = localsize + callee_argsize;
+    // locals, return address, callee args
+    long stk_lower_size = localsize + RETURN_ADDR_SIZE + callee_argsize;
 
     function_top(f, v, stk_lower_size);
     emit(f, "\t; loc_sz=%lu, rs_sz=%lu, ce_sz=%lu\n", localsize, rsavesize, callee_argsize);
@@ -1073,17 +1080,21 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             long args_size = pushedargsize(p);
             emit(f, "\t; sz_passed=%ld\n", args_size);
 
-            // TODO sink the stack to accomodate args?
-
             if ((p->q1.flags & (VAR | DREFOBJ)) == VAR && p->q1.v->fi && p->q1.v->fi->inline_asm) {
                 emit_inline_asm(f, p->q1.v->fi->inline_asm);
             } else {
+                // - store return address
+                long return_addr_slot = args_size;
+                emit(f, "\tstw\tlr\tsp\t#%ld\n", return_addr_slot);
                 // use the AT register to store call location
                 emit(f, "\tset\tat\t");
                 emit_obj(f, &p->q1, t);
                 emit(f, "\n");
                 emit(f, "\tcal\tat");
                 emit(f, "\n");
+                // - load return address
+                emit(f, "\tldw\tlr\tsp\t#%ld\n", return_addr_slot);
+
             }
 
             pushed -= args_size; // decrease pushed by size of all args used to call
