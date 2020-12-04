@@ -509,7 +509,7 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
             if (objvar_raw_offset(p) < 0) {
                 // TODO: can we improve this? this hardcodes arg size
                 long argi = (objvar_raw_offset(p) + zm2l(maxalign)) / 4;
-                emit(f, "\t; arg_%ld", argi);
+                emit(f, "\t; get arg_%ld", argi);
             }
             
         } else {
@@ -1111,7 +1111,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 // 2. store that temp reg into the stack
                 // TODO: argi hardcodes arg size
                 long argi = pushed / 4;
-                emit(f, "\tstw\t%s\t%s\t#%ld\t; arg_%ld", regnames[q1reg], regnames[sp], pushed, argi);
+                emit(f, "\tstw\t%s\t%s\t#%ld\t; set arg_%ld", regnames[q1reg], regnames[sp], pushed, argi);
                 emit(f, "\n");
                 pushed += arg_size; // increase pushed by size of thing pushed
                 continue;
