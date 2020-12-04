@@ -161,8 +161,6 @@ static void peephole(struct IC *p);
 /* calculate the actual current offset of an object relativd to the
    stack-pointer; we use a stack layout like this:
    ------------------------------------------------
-   | arguments to this function                   |
-   ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
    | local variables [size=localsize]             |
@@ -182,12 +180,16 @@ static long real_offset(struct obj *o) {
     long off = zm2l(o->v->offset);
     if (off < 0) {
         /* function parameter */
-        off = localsize + rsavesize + 4 - off - zm2l(maxalign);
+        printf("parm: %ld, save: %ld, loc: %ld, ma: %ld", off, rsavesize, localsize, zm2l(maxalign));
+        off = rsavesize + localsize - off - zm2l(maxalign);
+        printf(", adj: %ld\n", off);
     }
 
     off += argsize;
     
-    off += zm2l(o->val.vmax);
+    long v_size = zm2l(o->val.vmax);
+    off += v_size;
+    printf("ro: %ld, as: %ld, sz: %ld\n", off, argsize, v_size);
     return off;
 }
 
@@ -842,8 +844,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         // if there are any function calls
         // set argsize (the size of args sent to called functions)
         // to the highest offset needed to pass args
-        if (c == CALL && argsize < zm2l(m->q2.val.vmax))
-            argsize = zm2l(m->q2.val.vmax);
+        if (c == CALL && argsize < pushedargsize(m))
+            argsize = pushedargsize(m);
     }
     peephole(p);
 
