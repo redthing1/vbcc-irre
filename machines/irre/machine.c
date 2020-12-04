@@ -797,9 +797,14 @@ void gen_var_head(FILE *f, struct Var *v)
                 gen_align(f, falign(v->vtyp));
                 emit(f, "%s%s:\n", idprefix, v->identifier);
             } else {
-                // .global, .lcomm
-                emit(f, "\t; .global\t%s%s\n\t; .%scomm\t%s%s,", idprefix, v->identifier, (USE_COMMONS ? "" : "l"),
-                     idprefix, v->identifier);
+                // .global
+                emit(f, "\t; .global\t%s%s\n", idprefix, v->identifier);
+                // TODO is this appropriate
+                // generate a fake varlabel
+                emit(f, "\t %s%s:\t; global variable\n", idprefix, v->identifier);
+                // commons (.lcomm, etc.)
+                char *commons_pfx = (USE_COMMONS ? "" : "l");
+                emit(f, "\t; .%scomm\t%s%s,", commons_pfx, idprefix, v->identifier);
             }
             newobj = 1;
         }
