@@ -329,22 +329,38 @@ static void store_reg(FILE *f, int r, struct obj *o, int type) {
     // emit(f, ",%s\n", regnames[r]);
 
     // store register into memory
-    // check storage type
-    if (o->v->storage_class == AUTO || o->v->storage_class == REGISTER) {
-        // dest is reg
-        emit(f, "\tstw\t%s\t", regnames[r]);
-        emit_obj(f, o, type);
-        emit(f, "\n");
-    } else if (o->v->storage_class == STATIC || o->v->storage_class == EXTERN) {
-        // dest is static/extern
-        // put the var address in a temp reg
-        load_address(f, at, o, type);
-        // TODO: maybe don't use AT, use temp instead
-        emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[at]);
-        emit(f, "\n");
+    if ((o->flags & VAR) > 0) {
+        // variable, check storage type
+        if (o->v->storage_class == AUTO || o->v->storage_class == REGISTER) {
+            // dest is reg
+            emit(f, "\tstw\t%s\t", regnames[r]);
+            emit_obj(f, o, type);
+            emit(f, "\n");
+        } else if (o->v->storage_class == STATIC || o->v->storage_class == EXTERN) {
+            // dest is static/extern
+            // put the var address in a temp reg
+            load_address(f, at, o, type);
+            // TODO: maybe don't use AT, use temp instead
+            emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[at]);
+            emit(f, "\n");
+        } else {
+            // unknown
+            printf("unknown (VAR) store_reg (storage %d)\n", o->v->storage_class);
+            ierror(0);
+        }
+    } else if ((o->flags & (DREFOBJ)) > 0) {
+        if ((o->flags & (REG)) > 0) {
+            // use value in register as pointer into memory
+            emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[o->reg]);
+            emit(f, "\n");
+        } else {
+            // unknown
+            printf("unknown (DREFOBJ) store_reg (flags %d)\n", o->flags);
+            ierror(0);
+        }
     } else {
         // unknown
-        printf("unknown store_reg\n");
+        printf("unknown store_reg (flags %d)\n", o->flags);
         ierror(0);
     }
 }
