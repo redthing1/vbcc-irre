@@ -179,16 +179,15 @@ static void peephole(struct IC *p);
 
 static long real_offset(struct obj *o) {
     long off = zm2l(o->v->offset);
+    long dbg1 = off;
     long v_size = zm2l(o->val.vmax);
-    printf("real_offset(%ld)", off);
     if (off < 0) {
         off = off + zm2l(maxalign) - 4;
-        printf(", nga: %ld", off);
     }
+    long dbg2 = off;
     off += rsavesize;
     off += v_size;
-    printf(", ca: %ld, vs: %ld, adj: %ld", callee_argsize, v_size, off);
-    printf("\n");
+    // printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
     return off;
     // if (off < 0) {
     //     /* function parameter */
