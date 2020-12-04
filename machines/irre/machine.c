@@ -445,14 +445,14 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
             // stack offset location
             emit(f, "%s\t#%ld", regnames[sp], real_offset(p));
         } else {
-            if (!zmeqto(l2zm(0L), p->val.vmax)) {
-                emitval(f, &p->val, LONG);
-                emit(f, "+");
-            }
             if (p->v->storage_class == STATIC) {
-                emit(f, "::%s^#%ld", labprefix, zm2l(p->v->offset));
+                emit(f, "::%s[??]%ld", labprefix, zm2l(p->v->offset));
             } else {
                 emit(f, "::%s%s", idprefix, p->v->identifier);
+            }
+            if (!zmeqto(l2zm(0L), p->val.vmax)) {
+                emit(f, "^#");
+                emitval(f, &p->val, LONG);
             }
         }
     }
