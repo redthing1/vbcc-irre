@@ -161,10 +161,9 @@ static void peephole(struct IC *p);
 
 /* calculate the actual current offset of an object relative to the
    stack-pointer; we use a stack layout like this:
+   <---------- STACK POINTER
    ------------------------------------------------
    | arguments to this function                   |
-   ------------------------------------------------
-   <---------- STACK POINTER
    ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
@@ -186,10 +185,11 @@ static long real_offset(struct obj *o) {
     long dbg1 = off;
     long v_size = zm2l(o->val.vmax);
     if (off < 0) {
-        off = off + 4;
+        // this is a parameter
+        off = localsize + rsavesize - off - zm2l(maxalign);
     }
     long dbg2 = off;
-    off += rsavesize;
+    off += callee_argsize;
     off += v_size;
     printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
     return off;
@@ -946,10 +946,10 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
     // calculate word-aligned frame offset
     localsize = (zm2l(frame_offset) + 3) / 4 * 4;
-    long above_stk_size = localsize + rsavesize;
+    long stk_lower_size = localsize + callee_argsize;
 
-    function_top(f, v, above_stk_size);
-    emit(f, "\t; loc_sz=%lu, rs_sz=%lu, ce_sz=-%lu\n", localsize, rsavesize, callee_argsize);
+    function_top(f, v, stk_lower_size);
+    emit(f, "\t; loc_sz=%lu, rs_sz=%lu, ce_sz=%lu\n", localsize, rsavesize, callee_argsize);
 
     // no callee args have been pushed yet
     pushed = 0;
@@ -1095,13 +1095,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             if (c == PUSH) {
                 // size of the thing pushed
                 long arg_size = pushsize(p);
-                pushed += arg_size; // increase pushed by size of thing pushed
                 // 1. grab the value into a temp reg
                 q1reg = t1;
                 load_reg(f, q1reg, &p->q1, t);
                 // 2. store that temp reg into the stack
-                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], -(pushed));
+                emit(f, "\tstw\t%s\t%s\t#%ld\t; arg_%ld", regnames[q1reg], regnames[sp], pushed, pushed);
                 emit(f, "\n");
+                pushed += arg_size; // increase pushed by size of thing pushed
                 continue;
             }
             if (c == ASSIGN) {
@@ -1170,7 +1170,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         ierror(0);
     }
 
-    function_bottom(f, v, above_stk_size);
+    function_bottom(f, v, stk_lower_size);
     // if (stack_valid) {
     //     if (!v->fi)
     //         v->fi = new_fi();
