@@ -147,7 +147,7 @@ static int exit_label;
 static char *labprefix = "l", *idprefix = "_";
 
 /* variables to keep track of the moving stack */
-int stackoffset;
+int stackoffset = 0;
 
 static long localsize, rsavesize, argsize;
 
@@ -1032,7 +1032,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         }
     }
 
-    localsize = (zm2l(frame_offset) + 3) / (4 * 4);
+    // calculate word-aligned frame offset
+    localsize = (zm2l(frame_offset) + 3) / 4 * 4;
 
     function_top(f, v, localsize);
 
