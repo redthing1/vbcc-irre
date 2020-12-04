@@ -151,21 +151,21 @@ static char *labprefix = "l", *idprefix = "_";
 /* stuff to keep track of the stack */
 static long pushed; // callee args that have been pushed
 
-static long localsize, rsavesize, argsize;
+static long localsize, rsavesize, callee_argsize;
 
 static void emit_obj(FILE *f, struct obj *p, int t);
 
 // optimization crap
 static void peephole(struct IC *p);
 
-/* calculate the actual current offset of an object relativd to the
+/* calculate the actual current offset of an object relative to the
    stack-pointer; we use a stack layout like this:
    ------------------------------------------------
    | caller-save registers [size=rsavesize]       |
    ------------------------------------------------
    | local variables [size=localsize]             |
    ------------------------------------------------
-   | arguments to called functions [size=argsize] |
+   | arguments to called functions [size=callee_argsize] |
    ------------------------------------------------
    All sizes will be aligned as necessary.
    In the case of a fixed stack pointer, the stack-pointer will be adjusted at
@@ -178,19 +178,30 @@ static void peephole(struct IC *p);
 
 static long real_offset(struct obj *o) {
     long off = zm2l(o->v->offset);
-    if (off < 0) {
-        /* function parameter */
-        printf("parm: %ld, save: %ld, loc: %ld, ma: %ld", off, rsavesize, localsize, zm2l(maxalign));
-        off = rsavesize + localsize - off - zm2l(maxalign);
-        printf(", adj: %ld\n", off);
-    }
-
-    off += argsize;
-    
     long v_size = zm2l(o->val.vmax);
+    printf("real_offset(%ld)", off);
+    if (off < 0) {
+        off = off + zm2l(maxalign) - 4;
+        printf(", nga: %ld", off);
+    }
+    off += callee_argsize;
     off += v_size;
-    printf("ro: %ld, as: %ld, sz: %ld\n", off, argsize, v_size);
+    printf(", ca: %ld, vs: %ld, adj: %ld", callee_argsize, v_size, off);
+    printf("\n");
     return off;
+    // if (off < 0) {
+    //     /* function parameter */
+    //     printf("parm: %ld, save: %ld, loc: %ld, ma: %ld", off, rsavesize, localsize, zm2l(maxalign));
+    //     off = rsavesize + localsize - off - zm2l(maxalign);
+    //     printf(", adj: %ld\n", off);
+    // }
+
+    // off += callee_argsize;
+    
+    // long v_size = zm2l(o->val.vmax);
+    // off += v_size;
+    // printf("ro: %ld, as: %ld, sz: %ld\n", off, callee_argsize, v_size);
+    // return off;
 }
 
 /*  Initializes an addressing-mode structure and returns a pointer to
@@ -794,7 +805,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
     int c, t, i;
     struct IC *m;
     Var* func_var = v;
-    argsize = 0;
+    callee_argsize = 0;
     if (DEBUG & 1)
         printf("gen_code()\n");
     for (c = 1; c <= MAXR; c++)
@@ -842,10 +853,10 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             }
         }
         // if there are any function calls
-        // set argsize (the size of args sent to called functions)
+        // set callee_argsize (the size of args sent to called functions)
         // to the highest offset needed to pass args
-        if (c == CALL && argsize < pushedargsize(m))
-            argsize = pushedargsize(m);
+        if (c == CALL && callee_argsize < pushedargsize(m))
+            callee_argsize = pushedargsize(m);
     }
     peephole(p);
 
