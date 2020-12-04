@@ -445,9 +445,9 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
                 emit(f, "+");
             }
             if (p->v->storage_class == STATIC) {
-                emit(f, "%s%ld", labprefix, zm2l(p->v->offset));
+                emit(f, "::%s^#%ld", labprefix, zm2l(p->v->offset));
             } else {
-                emit(f, "%s%s", idprefix, p->v->identifier);
+                emit(f, "::%s%s", idprefix, p->v->identifier);
             }
         }
     }
@@ -474,14 +474,14 @@ static void function_top(FILE *f, struct Var *v, long offset) {
     } else
         emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
     if (offset) {
-        emit(f, "\tsbi\t%s\t%s\t%ld\n", regnames[sp], regnames[sp], offset);
+        emit(f, "\tsbi\t%s\t%s\t#%ld\n", regnames[sp], regnames[sp], offset);
     }
 }
 
 /* generates the function exit code */
 static void function_bottom(FILE *f, struct Var *v, long offset) {
     if (offset) {
-        emit(f, "\tadi\t%s\t%s\t%ld\n", regnames[sp], regnames[sp], offset);
+        emit(f, "\tadi\t%s\t%s\t#%ld\n", regnames[sp], regnames[sp], offset);
     }
     emit(f, ret);
 }
