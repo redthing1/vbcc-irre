@@ -1083,21 +1083,22 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
 int shortcut(int code, int typ) { return 0; }
 
+/* get register to be used for arg passing. zero means none. */
 int reg_parm(struct reg_handle *m, struct Typ *t, int vararg, struct Typ *d) {
     int f;
     f = t->flags & NQ;
-    if (f <= LONG || f == POINTER) {
-        if (m->gregs >= GPR_ARGS)
-            return 0;
-        else
-            return FIRST_GPR + 3 + m->gregs++;
-    }
-    if (ISFLOAT(f)) {
-        if (m->fregs >= FPR_ARGS)
-            return 0;
-        else
-            return FIRST_FPR + 2 + m->fregs++;
-    }
+    // if (f <= LONG || f == POINTER) {
+    //     if (m->gregs >= GPR_ARGS)
+    //         return 0;
+    //     else
+    //         return FIRST_GPR + 3 + m->gregs++;
+    // }
+    // if (ISFLOAT(f)) {
+    //     if (m->fregs >= FPR_ARGS)
+    //         return 0;
+    //     else
+    //         return FIRST_FPR + 2 + m->fregs++;
+    // }
     return 0;
 }
 
