@@ -169,7 +169,7 @@ static void peephole(struct IC *p);
    stack-pointer; we use a stack layout like this:
    <---------- STACK POINTER
    ------------------------------------------------
-   | arguments to this function                   |
+   | arguments to called functions [size=callee_argsize] |
    ------------------------------------------------
    | return-address [size=4]                      |
    ------------------------------------------------
@@ -177,7 +177,9 @@ static void peephole(struct IC *p);
    ------------------------------------------------
    | local variables [size=localsize]             |
    ------------------------------------------------
-   | arguments to called functions [size=callee_argsize] |
+   <---------- STACK FRAME
+   ------------------------------------------------
+   | arguments to this function                   |
    ------------------------------------------------
    All sizes will be aligned as necessary.
    In the case of a fixed stack pointer, the stack-pointer will be adjusted at
@@ -197,8 +199,9 @@ static long real_offset(struct obj *o) {
         off = localsize + rsavesize + RETURN_ADDR_SIZE - off - zm2l(maxalign);
     }
     long dbg2 = off;
-    off += RETURN_ADDR_SIZE;
     off += callee_argsize;
+    off += RETURN_ADDR_SIZE;
+    off += rsavesize;
     off += v_size;
     printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
     return off;
