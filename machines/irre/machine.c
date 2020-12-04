@@ -993,7 +993,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 q1reg = t1;
                 load_reg(f, q1reg, &p->q1, t);
                 // 2. store that temp reg into the stack
-                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], pushed);
+                emit(f, "\tstw\t%s\t%s\t#%ld", regnames[q1reg], regnames[sp], -pushed);
                 emit(f, "\n");
                 // size of the thing pushed
                 long arg_size = zm2l(p->q2.val.vmax);
