@@ -299,9 +299,21 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                 emit(f, "\n");
             } else if ((o->flags & VAR) > 0) {
                 // source is var, use ldw
-                emit(f, "\tldw\t%s\t", regnames[r]);
-                emit_obj(f, o, type);
-                emit(f, "\n");
+                if (o->v->storage_class == EXTERN || o->v->storage_class == STATIC) {
+                    // address is var
+                    // TODO: maybe don't use AT, use temp instead
+                    // 1. load address to temp
+                    emit(f, "\tset\t%s\t", regnames[at]);
+                    emit_obj(f, o, type);
+                    emit(f, "\n");
+                    // 2. load from address
+                    emit(f, "\tldw\t%s\t%s\t#0\n", regnames[r], regnames[at]);
+                } else {
+                    // address is register
+                    emit(f, "\tldw\t%s\t", regnames[r]);
+                    emit_obj(f, o, type);
+                    emit(f, "\n");
+                }
             } else {
                 // unknown
                 ierror(0);
@@ -323,6 +335,7 @@ static void store_reg(FILE *f, int r, struct obj *o, int type) {
         // dest is var
         // put the var address in a temp reg
         load_address(f, at, o, type);
+        // TODO: maybe don't use AT, use temp instead
         emit(f, "\tstw\t%s\t%s\t#0", regnames[r], regnames[at]);
         emit(f, "\n");
     } else if ((o->flags & REG) > 0) {
