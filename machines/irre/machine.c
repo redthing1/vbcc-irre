@@ -796,10 +796,11 @@ void gen_var_head(FILE *f, struct Var *v)
             if (v->clist || section == SPECIAL) {
                 gen_align(f, falign(v->vtyp));
                 emit(f, "%s%s:\n", idprefix, v->identifier);
-            } else
+            } else {
                 // .global, .lcomm
                 emit(f, "\t; .global\t%s%s\n\t; .%scomm\t%s%s,", idprefix, v->identifier, (USE_COMMONS ? "" : "l"),
                      idprefix, v->identifier);
+            }
             newobj = 1;
         }
     }
