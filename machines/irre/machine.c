@@ -203,7 +203,7 @@ static long real_offset(struct obj *o) {
     off += RETURN_ADDR_SIZE;
     off += rsavesize;
     off += v_size;
-    printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
+    // printf("real_offset(%ld), nga: %ld, ca: %ld, vs: %ld, adj: %ld\n", dbg1, dbg2, callee_argsize, v_size, off);
     return off;
     // if (off < 0) {
     //     /* function parameter */
