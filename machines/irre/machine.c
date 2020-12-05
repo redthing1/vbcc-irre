@@ -777,7 +777,7 @@ void gen_ds(FILE *f, zmax size, struct Typ *t)
     if (newobj && section != SPECIAL) {
         // generate bytes of storage
         // TODO: rework this
-        emit(f, "%ld\n", zm2l(size));                        // raw number
+        emit(f, "%ld\n", zm2l(size));                           // raw number
         emit(f, "\t%%d\t\\z\t#%ld\t; zero data\n", zm2l(size)); // zero data directive
     } else {
         emit(f, "\t%%d\t\\z\t#%ld\t; space\n", zm2l(size)); // zero data directive
@@ -866,6 +866,22 @@ void gen_var_head(FILE *f, struct Var *v)
     }
 }
 
+/* byte swap uint16 */
+zushort swap_uint16(zushort val) { return (val << 8) | (val >> 8); }
+
+/* byte swap uint32 */
+zuint swap_uint32(zuint val) {
+    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF);
+    return (val << 16) | (val >> 16);
+}
+
+// uint64_t swap_uint64( uint64_t val )
+// {
+//     val = ((val << 8) & 0xFF00FF00FF00FF00ULL ) | ((val >> 8) & 0x00FF00FF00FF00FFULL );
+//     val = ((val << 16) & 0xFFFF0000FFFF0000ULL ) | ((val >> 16) & 0x0000FFFF0000FFFFULL );
+//     return (val << 32) | (val >> 32);
+// }
+
 void gen_dc(FILE *f, int t, struct const_list *p)
 /*  This function has to create static storage          */
 /*  initialized with const-list p.                      */
@@ -889,14 +905,18 @@ void gen_dc(FILE *f, int t, struct const_list *p)
             int nut = t & NU;
             long v = p->val.vulong;
             char vbuf[9];
-            // convert it to pack format
-            if (nut & CHAR)
-                sprintf(vbuf, "%02x", v);
-            else if (nut & SHORT)
-                sprintf(vbuf, "%04x", v);
-            else if (nut & INT)
-                sprintf(vbuf, "%08x", v);
-            else {
+            // printf("gen_dc() v: %ld, t: %d\n", v, nut);
+            // convert it to pack format (we swap bytes to make little endian)
+            if (nut == CHAR) {
+                zuchar c = (zuchar)v;
+                sprintf(vbuf, "%02x", c);
+            } else if (nut == SHORT) {
+                zushort c = swap_uint16((zushort)v);
+                sprintf(vbuf, "%04x", c);
+            } else if (nut == INT) {
+                zuint c = swap_uint32((zuint)v);
+                sprintf(vbuf, "%08x", c);
+            } else {
                 printf("[irre/gen_dc] unsupported width");
                 ierror(0);
             }
