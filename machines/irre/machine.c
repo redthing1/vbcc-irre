@@ -790,7 +790,7 @@ void gen_align(FILE *f, zmax align)
 /*  aligned to multiples of <align> bytes.              */
 {
     if (zm2l(align) > 1)
-        emit(f, "\t.align\t2\n");
+        emit(f, "\t; .align\t2\n");
 }
 
 void gen_var_head(FILE *f, struct Var *v)
