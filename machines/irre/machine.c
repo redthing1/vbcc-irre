@@ -521,7 +521,7 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
                 long argi = (objvar_raw_offset(p) + zm2l(maxalign)) / 4;
                 emit(f, "\t; get arg_%ld", argi);
             }
-            
+
         } else {
             if (p->v->storage_class == STATIC) {
                 emit(f, "::%s[??]%ld", labprefix, zm2l(p->v->offset));
@@ -778,9 +778,10 @@ void gen_ds(FILE *f, zmax size, struct Typ *t)
         // generate bytes of storage
         // TODO: rework this
         emit(f, "%ld\n", zm2l(size));                        // raw number
-        emit(f, "\t%%d \\z %ld\t; zero data\n", zm2l(size)); // zero data directive
-    } else
-        emit(f, "\t.space\t%ld\n", zm2l(size));
+        emit(f, "\t%%d\t\\z\t%ld\t; zero data\n", zm2l(size)); // zero data directive
+    } else {
+        emit(f, "\t%%d\t\\z\t%ld\t; space\n", zm2l(size)); // zero data directive
+    }
     newobj = 0;
 }
 
@@ -869,9 +870,11 @@ void gen_dc(FILE *f, int t, struct const_list *p)
 /*  This function has to create static storage          */
 /*  initialized with const-list p.                      */
 {
-    emit(f, "\tdc.%s\t", dt(t & NQ));
+    emit(f, "\t%%d\t\\x\t", dt(t & NQ));
     if (!p->tree) {
+        // ?
         if (ISFLOAT(t)) {
+            emit(f, "[dc?f]");
             /*  auch wieder nicht sehr schoen und IEEE noetig   */
             unsigned char *ip;
             ip = (unsigned char *)&p->val.vdouble;
@@ -880,9 +883,28 @@ void gen_dc(FILE *f, int t, struct const_list *p)
                 emit(f, ",0x%02x%02x%02x%02x", ip[4], ip[5], ip[6], ip[7]);
             }
         } else {
-            emitval(f, &p->val, t & NU);
+            // raw number
+            // TODO: this only supports up to ints (4 bytes)
+            // emitval(f, &p->val, t & NU);
+            int nut = t & NU;
+            long v = p->val.vulong;
+            char vbuf[9];
+            // convert it to pack format
+            if (nut & CHAR)
+                sprintf(vbuf, "%02x", v);
+            else if (nut & SHORT)
+                sprintf(vbuf, "%04x", v);
+            else if (nut & INT)
+                sprintf(vbuf, "%08x", v);
+            else {
+                printf("[irre/gen_dc] unsupported width");
+                ierror(0);
+            }
+
+            emit(f, "%s", vbuf);
         }
     } else {
+        emit(f, "[dc?2]");
         emit_obj(f, &p->tree->o, t & NU);
     }
     emit(f, "\n");
@@ -1098,7 +1120,6 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 emit(f, "\n");
                 // - load return address
                 emit(f, "\tldw\tlr\tsp\t#%ld\n", return_addr_slot);
-
             }
 
             pushed -= args_size; // decrease pushed by size of all args used to call
