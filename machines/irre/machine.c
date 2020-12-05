@@ -901,7 +901,7 @@ void gen_dc(FILE *f, int t, struct const_list *p)
                 ierror(0);
             }
 
-            emit(f, "%s", vbuf);
+            emit(f, "$%s", vbuf); // hex str
         }
     } else {
         emit(f, "[dc?2]");
