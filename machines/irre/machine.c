@@ -144,7 +144,7 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 // static long stack;
 // static int stack_valid;
 static int section = -1, newobj;
-static char *codename = "\t; .text\n", *dataname = "\t.data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
+static char *codename = "\t; .text\n", *dataname = "\t; .data\n", *bssname = "", *rodataname = "\t.section\t.rodata\n";
 
 /* return-instruction */
 static char *ret = "\tret\n";
