@@ -778,9 +778,9 @@ void gen_ds(FILE *f, zmax size, struct Typ *t)
         // generate bytes of storage
         // TODO: rework this
         emit(f, "%ld\n", zm2l(size));                        // raw number
-        emit(f, "\t%%d\t\\z\t%ld\t; zero data\n", zm2l(size)); // zero data directive
+        emit(f, "\t%%d\t\\z\t#%ld\t; zero data\n", zm2l(size)); // zero data directive
     } else {
-        emit(f, "\t%%d\t\\z\t%ld\t; space\n", zm2l(size)); // zero data directive
+        emit(f, "\t%%d\t\\z\t#%ld\t; space\n", zm2l(size)); // zero data directive
     }
     newobj = 0;
 }
