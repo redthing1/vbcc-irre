@@ -272,9 +272,10 @@ static void load_address(FILE *f, int r, struct obj *o, int type)
         ierror(0);
     if (o->v->storage_class == AUTO || o->v->storage_class == REGISTER) {
         long off = real_offset(o);
-        emit(f, "\tmov.%s\t%s,%s\n", dt(POINTER), regnames[r], regnames[sp]);
+        // var pointer
+        emit(f, "\tmov\t%s\t%s\t; &var\n", regnames[r], regnames[sp]);
         if (off)
-            emit(f, "\tadd.%s\t%s,%ld\n", dt(POINTER), regnames[r], off);
+            emit(f, "\tadi\t%s\t%s\t#%ld\n", regnames[r], regnames[r], off);
     } else if (o->v->storage_class == EXTERN || o->v->storage_class == STATIC) {
         // pointer address
         emit(f, "\tset\t%s\t", regnames[r]);
