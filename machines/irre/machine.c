@@ -1,8 +1,8 @@
-/*  
+/*
     IRRE backend for vbcc,
-	based on the generic RISC backend
+        based on the generic RISC backend
 
-	The specification for the CPU targeted by this backend can be found at:
+        The specification for the CPU targeted by this backend can be found at:
     - architecture: https://github.com/xdrie/irre-tools/blob/master/doc/arch.md
     - assembler: https://github.com/xdrie/irre-tools/blob/master/doc/asm.md
 
@@ -138,7 +138,8 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 // static long stack;
 // static int stack_valid;
 static int section = -1, newobj;
-static char *codename = "%%section\ttext\n", *dataname = "%%section\tdata\n", *bssname = "%%section\tbss\n", *rodataname = "%%section\trodata\n";
+static char *codename = "%%section\ttext\n", *dataname = "%%section\tdata\n", *bssname = "%%section\tbss\n",
+            *rodataname = "%%section\trodata\n";
 
 /* return-instruction */
 static char *ret = "\tret\n";
@@ -407,7 +408,7 @@ static int q1reg, q2reg, zreg;
 
 static char *ccs[] = {"eq", "ne", "lt", "ge", "le", "gt", ""};
 static char *logicals[] = {"or", "xor", "and"};
-static char *arithmetics[] = {"slw", "srw", "add", "sub", "mullw", "divw", "mod"};
+static char *arithmetics[] = {"lsh", "lsh", "add", "sub", "mul", "div", "mod"};
 
 /* Does some pre-processing like fetching operands from memory to
    registers etc. */
@@ -1210,6 +1211,12 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             load_reg(f, q1reg, &p->q1, t);
             load_reg(f, q2reg, &p->q2, t);
 
+            if (c == RSHIFT) {
+                // right shift means we have to negate the value in q2
+                emit(f, "\tset\t%s\t#0\n", regnames[t3]);                                       // set t3 to 0
+                emit(f, "\tsub\t%s\t%s\t%s\n", regnames[q2reg], regnames[t3], regnames[q2reg]); // q2 = 0 - q2
+            }
+
             // select dest reg
             if ((p->z.flags & REG) > 0) {
                 // if dest is already a register, go directly
@@ -1221,7 +1228,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
 
             if (c >= OR && c <= AND) {
                 emit(f, "\t%s\t%s\t%s\t%s", logicals[c - OR], regnames[zreg], regnames[q1reg], regnames[q2reg]);
-            } else {
+            } else if (c >= LSHIFT && c <= MOD) {
                 emit(f, "\t%s\t%s\t%s\t%s", arithmetics[c - LSHIFT], regnames[zreg], regnames[q1reg], regnames[q2reg]);
             }
             emit(f, "\n");
