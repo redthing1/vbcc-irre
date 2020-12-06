@@ -1,17 +1,9 @@
-/*  Example backend for vbcc, it models a generic 32bit RISC or CISC
-    CPU.
-
-    Configurable at build-time are:
-    - number of (32bit) general-purpose-registers
-    - number of (64bit) floating-point-registers
-    - number of (8bit) condition-code-registers
-    - mechanism for stack-arguments (moving ot fixed sp)
-
-    It allows to select as run-time-options:
-    - two- or three-address code
-    - memory operands or load-store-architecture
-    - number of register-arguments
-    - number of caller-save-registers
+/*  
+    IRRE backend for vbcc,
+	based on the generic RISC backend
+	The specification for the CPU targeted by this backend can be found at:
+    - architecture: https://github.com/xdrie/irre-tools/blob/master/doc/arch.md
+    - assembler: https://github.com/xdrie/irre-tools/blob/master/doc/asm.md
 */
 
 /* build-time configurable options: */
