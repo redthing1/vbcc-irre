@@ -1,4 +1,4 @@
-/*  $VER: vbcc (m68k/machine.h) $Revision: 1.9 $     */
+/*  $VER: vbcc (m68k/machine.h) $Revision: 1.12 $     */
 
 #include "dt.h"
 
@@ -109,4 +109,10 @@ struct reg_handle {
 #define HAVE_TARGET_PRAGMAS
 
 /* We have a target-specific add_var hook */
-#define HAVE_TARGET_VARHOOK
+#define HAVE_TARGET_VARHOOK_PRE
+
+#define HAVE_POF2OPT 1
+
+#ifndef M68K_16BIT_INT
+#define HAVE_INT_SIZET 1
+#endif

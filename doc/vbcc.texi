@@ -85,7 +85,7 @@ Copyright 1995-2019 Volker Barthelmann
 
     In all other cases you need my written consent.
 
-    This copyright applies to vc, vbcc and vsc.
+    This copyright applies to vc, vbcc, vsc and vcpr.
 
     This archive may contain other tools (e.g. assemblers or linkers)
     which do not fall under this license. Please consult the corresponding
@@ -289,7 +289,7 @@ assign >NIL: vlibwos: vbcc:target/ppc-warpos/lib
     @file{config}-subdirectory to choose different targets (i.e.
     the system you want to generate programs for) and hosts
     (i.e. the system you want the compiler an tools to run on).
-    The general naming-scheme for these files ist <target>_<host>.
+    The general naming-scheme for these files is <target>_<host>.
 
     Available config files, when all targets are installed, are
 @table @file
@@ -424,9 +424,18 @@ assign >NIL: vlibwos: vbcc:target/ppc-warpos/lib
 @chapter VideoCore IV Backend
 @include vbccvidcore.texi
 
+@node 6502 Backend
+@chapter 6502 Backend
+@include vbcc6502.texi
+
+
 @node Instruction Scheduler
 @chapter Instruction Scheduler
 @include vsc.texi
+
+@node Code Compressor
+@chapter Code Compressor
+@include vcpr.texi
 
 @node C Library
 @chapter C Library
