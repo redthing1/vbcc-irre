@@ -15,7 +15,7 @@ static char FILE_[] = __FILE__;
 /*  Public data that MUST be there.                             */
 
 /* Name and copyright. */
-char cg_copyright[] = "IRRE code-generator V0.2c (c) 2020, redthing1";
+char cg_copyright[] = "IRRE code-generator V0.3c (c) 2020-2022, redthing1";
 
 #define FIXED_SP 1 // fixed sp mode
 
