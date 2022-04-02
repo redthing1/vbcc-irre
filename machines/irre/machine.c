@@ -1185,7 +1185,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         }
         if (c == MINUS) {
             load_reg(f, zreg, &p->q1, t);
-            emit(f, "\tneg.%s\t%s\n", dt(t), regnames[zreg]);
+            emit(f, "\t_unk_negate.%s\t%s\n", dt(t), regnames[zreg]);
             save_result(f, p);
             continue;
         }
