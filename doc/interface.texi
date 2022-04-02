@@ -1332,7 +1332,7 @@ fine-tune the register selection. Some guidelines:
         priority than registers not used for arguments. The priority
         within the argument-registers should decrease as the frequency
         of usage as argument increases (typically the register for the first
-        argument ist used most frequently, etc.).
+        argument is used most frequently, etc.).
 @end itemize
 
 @end table

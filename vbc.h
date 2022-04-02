@@ -1,4 +1,4 @@
-/*  $VER: vbcc (vbc.h) $Revision: 1.16 $    */
+/*  $VER: vbcc (vbc.h) $Revision: 1.18 $    */
 
 #include "supp.h"
 
@@ -185,7 +185,7 @@ extern void scratch_var(struct obj *,int,type *);
 extern void get_scratch(struct obj *,int,int,type *);
 extern void gen_cond(struct obj *,int,int,int);
 
-#define MAXCF 60
+#define MAXCF 70
 extern int c_flags[MAXCF];
 extern char *c_flags_name[MAXCF];
 extern union ppi c_flags_val[MAXCF];
@@ -256,6 +256,7 @@ extern int errors;
 
 extern int float_used;
 extern char *cur_func;
+extern Var *cur_funcv;
 extern int line;
 extern void free_clist(struct const_list *);
 extern struct const_list *first_clist,*last_clist;

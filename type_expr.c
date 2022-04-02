@@ -1,4 +1,4 @@
-/*  $VER: vbcc (type_expr.c) $Revision: 1.43 $   */
+/*  $VER: vbcc (type_expr.c) $Revision: 1.50 $   */
 
 #include "vbc.h"
 
@@ -478,6 +478,37 @@ int type_expression(np p,type *ttyp)
 
 }
 
+static void fix_addr_ptype(np op)
+{
+  np p=op;
+  while(p->flags==FIRSTELEMENT) p=p->left;
+  if(p->left->flags==CONTENT){
+    int pt=p->left->left->ntyp->flags;
+    if(!ISPOINTER(pt)) ierror(0);
+    if(!ISPOINTER(op->ntyp->flags)) ierror(0);
+    op->ntyp->flags=pt;
+  }
+}
+
+static int ptype(np op)
+{
+#ifdef POINTER_VARADR
+  Var *v=0;
+  np p=op;
+
+  while(p->flags==FIRSTELEMENT/*||p->flags==CONTENT*/) p=p->left;
+  
+  if(p->flags==IDENTIFIER)
+    v=find_var(p->identifier,0);
+  if(v) 
+    return POINTER_VARADR(v);
+  else
+    return POINTER_TYPE(op->ntyp);
+#else
+  return POINTER_TYPE(op->ntyp);
+#endif
+}
+
 int type_expression2(np p,type *ttyp)
 /*  Erzeugt Typ-Strukturen fuer jeden Knoten des Baumes und     */
 /*  liefert eins zurueck, wenn der Baum ok ist, sonst 0         */
@@ -621,7 +652,7 @@ int type_expression2(np p,type *ttyp)
 /*    printf("bearbeite %s\n",ename[p->flags]);*/
 /*  Erzeugung von Zeigern aus Arrays                            */
 /*  Hier muss noch einiges genauer werden (wie gehoert das?)    */
-  if(p->left&&(ISARRAY(p->left->ntyp->flags)||ISFUNC(p->left->ntyp->flags))){
+  if(p->left&&f!=PCEXPR&&(ISARRAY(p->left->ntyp->flags)||ISFUNC(p->left->ntyp->flags))){
     if(f!=ADDRESS&&f!=ADDRESSA&&f!=ADDRESSS&&f!=FIRSTELEMENT&&f!=DSTRUCT&&(f<PREINC||f>POSTDEC)&&(f<ASSIGN||f>ASSIGNOP)){
       np new=new_node();
       if((p->left->ntyp->flags&NQ)==ARRAY) new->flags=ADDRESSA;
@@ -633,7 +664,7 @@ int type_expression2(np p,type *ttyp)
       ok&=type_expression2(p->left,0);
     }
   }
-  if(p->right&&f!=FIRSTELEMENT&&f!=DSTRUCT&&f!=ADDRESSS&&(ISARRAY(p->right->ntyp->flags)||ISFUNC(p->right->ntyp->flags))){
+  if(p->right&&f!=PCEXPR&&f!=FIRSTELEMENT&&f!=DSTRUCT&&f!=ADDRESSS&&p->right->ntyp&&(ISARRAY(p->right->ntyp->flags)||ISFUNC(p->right->ntyp->flags))){
     np new=new_node();
     if(ISARRAY(p->right->ntyp->flags)) new->flags=ADDRESSA;
     else new->flags=ADDRESS;
@@ -1176,6 +1207,11 @@ int type_expression2(np p,type *ttyp)
 	  p->ntyp->flags&=~NQ;
 	  p->ntyp->flags|=int_erw(p->left->ntyp->flags);
 	}
+	if(p->right->flags==CEXPR){
+	  eval_constn(p->right);
+	  if(!zmleq(l2zm(0L),vmax)) error(366);
+	  if(zmleq(zmmult(sizetab[p->ntyp->flags&NQ],char_bit),vmax)) error(367);
+	}
 #ifdef HAVE_MISRA
 /* removed */
 /* removed */
@@ -1354,8 +1390,15 @@ int type_expression2(np p,type *ttyp)
     }else{
       if(!p->left->ntyp) ierror(0);
       p->ntyp=clone_typ(p->left->ntyp);
-      if(ISINT(p->ntyp->flags)&&(!ttyp||!shortcut(f,ttyp->flags&NU)))
-	p->ntyp->flags=int_erw(p->ntyp->flags);
+      if(ISINT(p->ntyp->flags)){
+	if(!ttyp||!shortcut(f,ttyp->flags&NU)){
+	  p->ntyp->flags=int_erw(p->ntyp->flags);
+	}else{ 
+	  if((f==MINUS&&!zmleq(sizetab[ttyp->flags&NQ],sizetab[p->ntyp->flags&NQ]))||
+	     (f==KOMPLEMENT&&!zmleq(sizetab[ttyp->flags&NQ],sizetab[p->ntyp->flags&NQ])&&(p->ntyp->flags&UNSIGNED)))
+	    p->ntyp->flags=int_erw(p->ntyp->flags);
+	}
+      }
     }
     if(p->left->flags==CEXPR){
       eval_constn(p->left);
@@ -1455,21 +1498,23 @@ int type_expression2(np p,type *ttyp)
       }
     }
     p->ntyp=new_typ();
-    p->ntyp->flags=POINTER_TYPE(p->left->ntyp);
+    p->ntyp->flags=ptype(p->left);
     p->ntyp->next=clone_typ(p->left->ntyp);
+    fix_addr_ptype(p);
     return ok;
   }
   if(f==ADDRESSA){
     p->ntyp=clone_typ(p->left->ntyp);
-    p->ntyp->flags=POINTER_TYPE(p->left->ntyp);
+    p->ntyp->flags=ptype(p->left);
+    fix_addr_ptype(p);
     return ok;
   }
   if(f==ADDRESSS){
     int i,n=-1;
     struct_list *sl=0;
     if(!ecpp){
-    for(i=0;i<p->left->ntyp->exact->count;i++)
-      if(!strcmp((*p->left->ntyp->exact->sl)[i].identifier,p->right->identifier)) n=i;
+      for(i=0;i<p->left->ntyp->exact->count;i++)
+	if(!strcmp((*p->left->ntyp->exact->sl)[i].identifier,p->right->identifier)) n=i;
       if(n<0)
         return 0;
       else
@@ -1514,7 +1559,8 @@ int type_expression2(np p,type *ttyp)
     if(!p->left->ntyp->exact) ierror(0);
     if(!sl->styp) ierror(0);
     p->ntyp->next=clone_typ(sl->styp);
-    p->ntyp->flags=POINTER_TYPE(p->ntyp->next);
+    p->ntyp->flags=ptype(p->left);
+    fix_addr_ptype(p);
     return ok;
   }
   if(f==DSTRUCT){
@@ -1715,6 +1761,7 @@ int type_expression2(np p,type *ttyp)
 	    type *t;
 	    enum{LL=1,HH};
 	    c=(int)zm2l(zc2zm(cl->other->val.vchar));
+	    c=CHARBACK(c);
 	    cl=cl->next;
 	    if(c==0){
 	      if(cl) error(215);
@@ -1723,6 +1770,7 @@ int type_expression2(np p,type *ttyp)
 	    if(c!='%') continue;
 	    if(!cl){error(214);return ok;}
 	    c=(int)zm2l(zc2zm(cl->other->val.vchar));
+	    c=CHARBACK(c);
 	    cl=cl->next;
 	    while(isdigit((unsigned char)c)||
 		  c=='-'||c=='+'||c==' '||c=='#'||c=='.'||
@@ -1743,6 +1791,7 @@ int type_expression2(np p,type *ttyp)
 		  fflags=c;
 	      }
 	      c=(int)zm2l(zc2zm(cl->other->val.vchar));
+	      c=CHARBACK(c);
 	      cl=cl->next;
 	      if(!cl){error(214);return ok;}
 	    }
@@ -1841,6 +1890,7 @@ int type_expression2(np p,type *ttyp)
 		fused|=3;
 		do{
 		  c=(int)zm2l(zc2zm(cl->other->val.vchar));
+		  c=CHARBACK(c);
 		  cl=cl->next;
 		  if(!cl){error(214);return ok;}
 		}while(c!=']');     /*  fall through    */
@@ -2165,6 +2215,7 @@ int alg_opt(np p,type *ttyp)
             insert_constn(p);
             if(!p->left->sidefx){free_expression(p->left);p->left=0;} else make_cexpr(p->left);
             if(!p->right->sidefx){free_expression(p->right);p->right=0;} else make_cexpr(p->right);
+
 /*            return(type_expression2(p,ttyp));   */
             return 1;
         }
@@ -2176,23 +2227,47 @@ int alg_opt(np p,type *ttyp)
 	    dontopt=0;
             return type_expression2(p,ttyp);
         }
-	if(f==AND&&(!ttyp||(ttyp->flags&NQ)>CHAR)&&shortcut(AND,CHAR)&&zumleq(u2,t_max[CHAR])){
-	  static type st={CHAR};
-	  return type_expression2(p,&st);
-	}
-	if(f==AND&&(!ttyp||(ttyp->flags&NQ)>CHAR)&&(p->ntyp->flags&UNSIGNED)&&shortcut(AND,UNSIGNED|CHAR)&&zumleq(u2,tu_max[CHAR])){
-	  static type st={UNSIGNED|CHAR};
-	  return type_expression2(p,&st);
-	}
-	if(f==AND&&(!ttyp||(ttyp->flags&NQ)>SHORT)&&shortcut(AND,SHORT)&&zumleq(s2,t_max[SHORT])){
-	  static type st={SHORT};
-	  return type_expression2(p,&st);
-	}
-	if(f==AND&&(!ttyp||(ttyp->flags&NQ)>SHORT)&&(p->ntyp->flags&UNSIGNED)&&shortcut(AND,UNSIGNED|SHORT)&&zumleq(u2,tu_max[SHORT])){
-	  static type st={UNSIGNED|SHORT};
-	  return type_expression2(p,&st);
-	}
+	/* check volatile */
+	{
+	  type st={0};
+	  if(!zmeqto(sizetab[CHAR],sizetab[SHORT])){
+	    //if(f==AND&&(!ttyp||(ttyp->flags&NQ)>CHAR)&&shortcut(AND,CHAR)&&zumleq(u2,t_max[CHAR]))
+	    //st.flags=CHAR;
+	    if(f==AND&&(!ttyp||(ttyp->flags&NQ)>CHAR)/*&&(p->ntyp->flags&UNSIGNED)*/&&shortcut(AND,UNSIGNED|CHAR)&&zumleq(u2,tu_max[CHAR]))
+	      st.flags=UNSIGNED|CHAR;
+	  }
+	  if(!zmeqto(sizetab[SHORT],sizetab[INT])){
+	    //if(f==AND&&(!ttyp||(ttyp->flags&NQ)>SHORT)&&shortcut(AND,SHORT)&&zumleq(s2,t_max[SHORT]))
+	    //st.flags=SHORT;
+	    if(f==AND&&(!ttyp||(ttyp->flags&NQ)>SHORT)/*&&(p->ntyp->flags&UNSIGNED)*/&&shortcut(AND,UNSIGNED|SHORT)&&zumleq(u2,tu_max[SHORT]))
+	      st.flags=UNSIGNED|SHORT;
+	  }
+	  //if(!ttyp&&(p->left->ntyp->flags&NQ)>INT) st.flags=0;
+	  if(st.flags){
+	    int ret;type *otyp;
+	    if(!p->ntyp) ierror(0);
+	    otyp=clone_typ(p->ntyp);
+	    np n=new_node();
+	    n->left=p->left;
+	    n->right=0;
+	    n->flags=CAST;
+	    n->ntyp=clone_typ(&st);
+	    eval_const(&p->right->val,p->right->ntyp->flags);
+	    p->right->ntyp->flags=st.flags;
+	    insert_const(&p->right->val,st.flags);
+	    p->left=n;
+	    n=new_node();
+	    *n=*p;
+	    p->left=n;
+	    p->right=0;
+	    p->flags=CAST;
+	    p->ntyp=otyp;
+	    ret=type_expression2(p->left,&st);
 
+	    return ret;
+	  }
+	}
+	
     }
     if(c==1){
         /*  0-a=-a  */
@@ -2227,7 +2302,7 @@ void make_cexpr(np p)
 /*  Fuehrt rekursiven Abstieg durch. Ist das so korrekt?                */
 {
     int f=p->flags;
-    if(f!=ASSIGN&&f!=ASSIGNOP&&f!=CALL&&f!=POSTINC&&f!=POSTDEC&&f!=PREINC&&f!=PREDEC){
+    if(f!=ASSIGN&&f!=ASSIGNOP&&f!=CALL&&f!=POSTINC&&f!=POSTDEC&&f!=PREINC&&f!=PREDEC&&f!=LAND&&f!=LOR){
         p->flags=PCEXPR;
         if(p->left) make_cexpr(p->left);
         if(p->right) make_cexpr(p->right);

@@ -1,4 +1,4 @@
-/*  $VER: vbcc (ic.c) $Revision: 1.41 $  */
+/*  $VER: vbcc (ic.c) $Revision: 1.52 $  */
 
 #include "vbc.h"
 #include "opt.h"
@@ -14,6 +14,18 @@ np gen_libcall(char *fname,np arg1,type *t1,np arg2,type *t2);
 
 static void handle_reglist(regargs_list *,obj *);
 
+static void fix_pushic(IC **pushic,IC *new)
+{
+  IC *p=last_ic;
+  while(p&&p->code==FREEREG) p=p->prev;
+  if(new==*pushic&&new!=p){
+    if(DEBUG&1){
+      printf("pushic converted to:\n");
+      pric2(stdout,p);
+    }
+    *pushic=p;
+  }
+}
 
 #if HAVE_LIBCALLS
 /* avoid calling use_libcall with illegal operands */
@@ -186,8 +198,8 @@ void inline_memcpy(np z,np q,zmax size)
 /*  fuegt ein ASSIGN-IC ein, das memcpy(z,q,size) entspricht    */
 {
     IC *new=new_IC();
-    if(!ISPOINTER(z->ntyp->flags)) ierror(0);
-    if(!ISPOINTER(q->ntyp->flags)) ierror(0);
+    if(!ISPOINTER(z->ntyp->flags)) {error(39);return;}
+    if(!ISPOINTER(q->ntyp->flags)) {error(39);return;}
 
     if(z->flags==ADDRESS||z->flags==ADDRESSA||z->flags==ADDRESSS){
       gen_IC(z,0,0);
@@ -218,6 +230,10 @@ void inline_memcpy(np z,np q,zmax size)
 	new->z.flags|=DREFOBJ;
 	new->z.dtyp=POINTER_TYPE(z->ntyp->next);
       }
+    }
+    if(z->ntyp->next->flags&VOLATILE){
+      if(new->z.flags&DREFOBJ)
+	new->z.dtyp|=PVOLATILE;
     }
     if(q->flags==ADDRESS||q->flags==ADDRESSA||q->flags==ADDRESSS){
       gen_IC(q,0,0);
@@ -250,11 +266,17 @@ void inline_memcpy(np z,np q,zmax size)
 	new->q1.dtyp=POINTER_TYPE(q->ntyp->next);
       }
     }
+    if(q->ntyp->next->flags&VOLATILE){
+      if(new->q1.flags&DREFOBJ)
+	new->q1.dtyp|=PVOLATILE;
+    }
     new->code=ASSIGN;
     new->typf=UNSIGNED|CHAR;
     new->q2.flags=0;
     new->q2.val.vmax=size;
-    add_IC(new);
+
+    if(!zmeqto(size,Z0))
+      add_IC(new);
 }
 
 void add_IC(IC *new)
@@ -729,6 +751,7 @@ void gen_IC(np p,int ltrue,int lfalse)
           p->o.flags|=DREFOBJ;
 	  p->o.dtyp=POINTER_TYPE(p->ntyp);
         }
+	if(p->left->ntyp->next->flags&VOLATILE) p->o.dtyp|=PVOLATILE;
         return;
     }
     if(p->flags==ASSIGN){
@@ -828,7 +851,7 @@ void gen_IC(np p,int ltrue,int lfalse)
 	new->z=p->left->o;
 	new->z.flags&=~DREFOBJ;
       }else{
-	get_scratch(&new->z,p->left->ntyp->flags,0,p->left->ntyp);
+	get_scratch(&new->z,p->ntyp->flags,0,p->ntyp);
       }
       new->q1=p->left->o;
       p->o=new->z;
@@ -983,19 +1006,21 @@ void gen_IC(np p,int ltrue,int lfalse)
       if(libname=use_libcall_wrap(COMPARE,at->flags,0)){
 	new->q1=gen_libcall(libname,p->left,at,p->right,clone_typ(at))->o;
 	new->code=TEST;
-	new->typf=INT;
+	new->typf=LIBCALL_CMPTYPE;
       }else{
 #endif
         new->code=COMPARE;
         tl=p->left->ntyp->flags&NU;tr=p->right->ntyp->flags&NU;
-        if(p->right->flags==CEXPR&&ISINT(tr)&&ISINT(tl)){
+        if(p->right->flags==CEXPR&&ISINT(tr)&&ISINT(tl)&&zm2l(sizetab[tl&NQ])<zm2l(sizetab[tr&NQ])&&shortcut(COMPARE,tl)){
 	  int negativ;
 	  eval_constn(p->right);
 	  if(zmleq(vmax,l2zm(0L))) negativ=1; else negativ=0;
 	  if((tl&UNSIGNED)||(tr&UNSIGNED)) negativ=0;
 	  if((!negativ||zmleq(t_min(tl),vmax))&&(negativ||zumleq(vumax,t_max(tl)))){
-	    convert(p->right,tl);
-	    tr=tl;
+	    if((tl&UNSIGNED)||!(tr&UNSIGNED)||p->flags==EQUAL||p->flags==INEQUAL){
+	      convert(p->right,tl);
+	      tr=tl;
+	    }
 	  }
         }
         if(ISARITH(tl)&&(tl!=tr||!shortcut(COMPARE,tl))){
@@ -1224,7 +1249,7 @@ void gen_IC(np p,int ltrue,int lfalse)
                     }
                 }
 
-                if(INLINEMEMCPY>0&&(optflags&2)){
+                if(inline_memcpy_sz>0&&(optflags&2)){
                     if(!strcmp(v->identifier,"strcpy")&&p->alist&&p->alist->next&&p->alist->next->arg){
                         np n=p->alist->next->arg;
                         if(n->flags==ADDRESSA&&n->left->flags==STRING&&zmeqto(n->left->val.vmax,l2zm(0L))){
@@ -1235,7 +1260,7 @@ void gen_IC(np p,int ltrue,int lfalse)
                                 if(zmeqto(zc2zm(cl->other->val.vchar),l2zm(0L))) break;
                                 cl=cl->next;
                             }
-                            if(zmleq(len,l2zm((long)INLINEMEMCPY))){
+                            if(zmleq(len,l2zm((long)inline_memcpy_sz))){
                                 inline_memcpy(p->alist->arg,n,len);
                                 p->o=p->alist->arg->o;
                                 return;
@@ -1247,7 +1272,7 @@ void gen_IC(np p,int ltrue,int lfalse)
                            &&p->alist->next->next->arg
                            &&p->alist->next->next->arg->flags==CEXPR){
                             eval_constn(p->alist->next->next->arg);
-                            if(zmleq(vmax,l2zm((long)INLINEMEMCPY))){
+                            if(zmleq(vmax,l2zm((long)inline_memcpy_sz))){
                                 inline_memcpy(p->alist->arg,p->alist->next->arg,vmax);
                                 p->o=p->alist->arg->o;
                                 return;
@@ -1420,6 +1445,8 @@ void gen_IC(np p,int ltrue,int lfalse)
         new->q2.flags=new->z.flags=0;
         new->q2.val.vmax=sz; /*  Groesse der Parameter auf dem Stack */
         add_IC(new);
+
+	//pric2(stdout,new);
 
         if(optflags&2){
             while(rl){
@@ -1790,6 +1817,7 @@ static void handle_reglist(regargs_list *nrl,obj *radr)
     }else{
 #endif
       nrl->al->pushic=new;
+      fix_pushic(&nrl->al->pushic,new);
 #ifdef HAVE_REGPARMS
     }
 #endif
@@ -1819,8 +1847,15 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
       }else{
         if(sd->count)
           stdreg=reg_parm(reg_handle,al->arg->ntyp,1,fkt->next);
-        else
-          stdreg=reg_parm(reg_handle,al->arg->ntyp,0,fkt->next);
+        else{
+	  if(short_push&&ISINT(al->arg->ntyp->flags)){
+	    static type t;
+	    t.flags=int_erw(al->arg->ntyp->flags);
+	    stdreg=reg_parm(reg_handle,&t,0,fkt->next);
+	  }else{
+	    stdreg=reg_parm(reg_handle,al->arg->ntyp,0,fkt->next);
+	  }
+	}
       }
     }
     reg=stdreg;
@@ -1842,7 +1877,7 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
 	t=ft->flags;
       }
       if(ISINT(t)){
-	if(!short_push)
+	if(n>=sd->count||!short_push)
 	  t=int_erw(t);
 	ft->flags=t;
 	sz=sizetab[t&NQ];
@@ -1889,9 +1924,11 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
         }else{
           new->q1.flags=0;
           add_IC(new);
+	  if(al) fix_pushic(&al->pushic,new);
         }
       }else{
         add_IC(new);
+	if(al) fix_pushic(&al->pushic,new);
       }
       opushed++;
       if(!first_pushed&&!nocode) first_pushed=new;
@@ -1945,6 +1982,7 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
 	new->z.val.vmax=rsz;
         add_IC(new);
 	al->pushic=new;
+	fix_pushic(&al->pushic,new);
         if(!regpush) return(zmadd(of,sz));
     }
 #endif
@@ -2091,6 +2129,7 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
             new->z.flags=REG;
             new->z.reg=reg;
             add_IC(new);
+	    if(al) fix_pushic(&al->pushic,new);
             nrl=mymalloc(sizeof(*nrl));
             nrl->next=*rl;
             nrl->reg=reg;
@@ -2318,7 +2357,7 @@ void free_reg(int r)
 {
     IC *new;
     if(!r||nocode) return;
-    if(regs[r]==0)
+    if(regs[r]==0&&!cross_module)
       {printf("Register %d(%s):\n",r,regnames[r]);ierror(0);}
     if(DEBUG&16) printf("freed %s\n",regnames[r]);
     new=new_IC();
@@ -2520,7 +2559,8 @@ int do_arith(np p,IC *new,np dest,obj *o)
 	new->z=p->left->o;
 	new->z.flags&=(~DREFOBJ);
       }else{
-	get_scratch(&new->z,POINTER_TYPE(p->left->ntyp->next),p->left->ntyp->next->flags,0);
+	/*get_scratch(&new->z,POINTER_TYPE(p->left->ntyp->next),p->left->ntyp->next->flags,0);*/
+	get_scratch(&new->z,p->ntyp->flags,p->ntyp->next->flags,0);
       }
       p->o=new->z;
       add_IC(new);

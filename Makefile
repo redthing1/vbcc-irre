@@ -1,6 +1,6 @@
 
 # used to create vbcc, vc and ucpp
-CC = gcc -std=c9x -g -DHAVE_AOS4 #-DHAVE_ECPP -DHAVE_MISRA
+CC = gcc -std=c9x -g -DHAVE_AOS4 #-fsanitize=address #-DHAVE_ECPP -DHAVE_MISRA 
 LDFLAGS = -lm
 MKDIR = mkdir -p
 RM = rm -f
@@ -50,8 +50,8 @@ doc/vbcc.html:
 vcppobjs = vcpp/cpp.o vcpp/eval.o vcpp/getopt.o vcpp/hideset.o vcpp/include.o \
 	   vcpp/lex.o vcpp/macro.o vcpp/nlist.o vcpp/tokens.o vcpp/unix.o
 
-vbcc.tar.gz:
-	(cd ..;tar zcvf vbcc.tar.gz vbcc/Makefile vbcc/*.[ch] vbcc/datatypes/*.[ch] vbcc/doc/*.texi vbcc/frontend/vc.c vbcc/machines/*/machine.[ch] vbcc/machines/*/machine.dt vbcc/machines/*/schedule.[ch] vbcc/ucpp/*.[ch] vbcc/ucpp/README vbcc/vprof/vprof.c vbcc/vsc/vsc.[ch])
+_vbcc.tar.gz:
+	(cd ..;tar zcvf vbcc.tar.gz --exclude=*/dt.c --exclude=*/dt.h vbcc/Makefile vbcc/bin/.dummy vbcc/*.[ch] vbcc/datatypes/*.[ch] vbcc/doc/*.texi vbcc/frontend/vc.c vbcc/machines/*/*.[ch] vbcc/machines/*/machine.dt vbcc/machines/*/schedule.[ch] vbcc/machines/*/compress.[ch] vbcc/ucpp/*.[ch] vbcc/ucpp/README vbcc/vprof/vprof.c vbcc/vsc/vsc.[ch] vbcc/vcpr/vcpr.[ch])
 
 bin/osekrm$X: osekrm.c
 	$(CC) osekrm.c -o $@
@@ -68,18 +68,18 @@ dist: bin/osekrm$X
 	mv statements.c t9
 	mv rd.c t10
 	mv type_expr.c t11
-	bin/osekrm$X <t1 >supp.h
-	bin/osekrm$X <t2 >supp.c
-	bin/osekrm$X <t3 >main.c
-	bin/osekrm$X <t4 >machines/ppc/machine.c
-	bin/osekrm$X <t5 >declaration.c
-	bin/osekrm$X <t6 >flow.c
-	bin/osekrm$X <t7 >ic.c
-	bin/osekrm$X <t8 >parse_expr.c
-	bin/osekrm$X <t9 >statements.c
-	bin/osekrm$X <t10 >rd.c
-	bin/osekrm$X <t11 >type_expr.c
-	make vbcc.tar.gz
+	bin/osekrm <t1 >supp.h
+	bin/osekrm <t2 >supp.c
+	bin/osekrm <t3 >main.c
+	bin/osekrm <t4 >machines/ppc/machine.c
+	bin/osekrm <t5 >declaration.c
+	bin/osekrm <t6 >flow.c
+	bin/osekrm <t7 >ic.c
+	bin/osekrm <t8 >parse_expr.c
+	bin/osekrm <t9 >statements.c
+	bin/osekrm <t10 >rd.c
+	bin/osekrm <t11 >type_expr.c
+	make _vbcc.tar.gz
 	mv t1 supp.h
 	mv t2 supp.c
 	mv t3 main.c
@@ -140,7 +140,7 @@ bobjects = $(TRGDIR)/main.o $(TRGDIR)/vars.o $(TRGDIR)/declaration.o \
 
 fobjects = $(TRGDIR)/opt.o $(TRGDIR)/av.o $(TRGDIR)/rd.o $(TRGDIR)/regs.o \
 	   $(TRGDIR)/flow.o $(TRGDIR)/cse.o $(TRGDIR)/cp.o $(TRGDIR)/loop.o \
-	   $(TRGDIR)/alias.o $(bobjects)
+	   $(TRGDIR)/alias.o $(TRGDIR)/range.o $(bobjects)
 
 sobjects = $(TRGDIR)/opts.o $(TRGDIR)/regss.o $(bobjects)
 
@@ -161,8 +161,10 @@ minicomp	 = $(TRGDIR)/supp.o $(TRGDIR)/minicompg.tab.o $(TRGDIR)/minicomp.o $(TR
 
 vscobjects = $(TRGDIR)/vsc.o $(TRGDIR)/schedule.o
 
-bin/vbcc$(TARGET)$X: $(fobjects)
-	$(CC) $(LDFLAGS) $(fobjects) -o $@
+vcprobjects = $(TRGDIR)/vcpr.o $(TRGDIR)/compress.o
+
+bin/vbcc$(TARGET): $(fobjects)
+	$(CC) $(LDFLAGS) $(fobjects) -o bin/vbcc$(TARGET)
 
 bin/vbccs$(TARGET)$X: $(sobjects)
 	$(CC) $(LDFLAGS) $(sobjects) -o $@
@@ -170,8 +172,11 @@ bin/vbccs$(TARGET)$X: $(sobjects)
 bin/vsc$(TARGET)$X: $(vscobjects)
 	$(CC) $(LDFLAGS) $(vscobjects) -o $@
 
-bin/tasm$(TARGET)$X: $(tasm)
-	$(CC) $(LDFLAGS) $(tasm) -o $@
+bin/vcpr$(TARGET): $(vcprobjects)
+	$(CC) $(LDFLAGS) $(vcprobjects) -o bin/vcpr$(TARGET)
+
+bin/tasm$(TARGET): $(tasm)
+	$(CC) $(LDFLAGS) $(tasm) -o bin/tasm$(TARGET)
 
 bin/mbasic$(TARGET)$X: $(mbasic)
 	$(CC) $(LDFLAGS) $(mbasic) -o $@
@@ -255,6 +260,9 @@ $(TRGDIR)/loop.o: loop.c opt.h supp.h $(TRGDIR)/machine.h $(TRGDIR)/dt.h
 $(TRGDIR)/alias.o: alias.c opt.h supp.h $(TRGDIR)/machine.h $(TRGDIR)/dt.h
 	$(CC) -c alias.c -o $@ -I$(TRGDIR)
 
+$(TRGDIR)/range.o: range.c opt.h supp.h $(TRGDIR)/machine.h $(TRGDIR)/dt.h
+	$(CC) -c range.c -o $(TRGDIR)/range.o -I$(TRGDIR)
+
 $(TRGDIR)/preproc.o: preproc.c vbpp.h supp.h vbc.h $(TRGDIR)/dt.h
 	$(CC) -c preproc.c -o $@ -I$(TRGDIR)
 
@@ -293,6 +301,13 @@ $(TRGDIR)/vsc.o: vsc/vsc.h vsc/vsc.c $(TRGDIR)/schedule.h
 
 $(TRGDIR)/schedule.o: vsc/vsc.h $(TRGDIR)/schedule.h $(TRGDIR)/schedule.c
 	$(CC) -c $(TRGDIR)/schedule.c -o $@ -I$(TRGDIR) -Ivsc
+
+$(TRGDIR)/vcpr.o: vcpr/vcpr.h vcpr/vcpr.c
+	$(CC) -c vcpr/vcpr.c -o $(TRGDIR)/vcpr.o -I$(TRGDIR)
+
+$(TRGDIR)/compress.o: vcpr/vcpr.h $(TRGDIR)/compress.c
+	$(CC) -c $(TRGDIR)/compress.c -o $(TRGDIR)/compress.o -I$(TRGDIR) -Ivcpr
+
 
 
 # Graph coloring register allocator by Alex

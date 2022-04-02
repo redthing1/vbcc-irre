@@ -298,15 +298,62 @@ static char *ccs[] = {"eq", "ne", "lt", "ge", "le", "gt", ""};
 static char *logicals[] = {"or", "xor", "and"};
 static char *arithmetics[] = {"slw", "srw", "add", "sub", "mullw", "divw", "mod"};
 
+/* compare if two objects are the same */
+static int compare_objects(struct obj *o1,struct obj *o2)
+{
+  if((o1->flags&(REG|DREFOBJ))==REG&&(o2->flags&(REG|DREFOBJ))==REG&&o1->reg==o2->reg)
+    return 1;
+  if(o1->flags==o2->flags&&o1->am==o2->am){
+    if(!(o1->flags&VAR)||(o1->v==o2->v&&zmeqto(o1->val.vmax,o2->val.vmax))){
+      if(!(o1->flags&REG)||o1->reg==o2->reg){
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
 /* Does some pre-processing like fetching operands from memory to
    registers etc. */
 static struct IC *preload(FILE *f, struct IC *p) {
     int r;
 
-    if (isreg(q1))
-        q1reg = p->q1.reg;
+  if(isreg(q1))
+    q1reg=p->q1.reg;
+  else
+    q1reg=0;
+
+  if(isreg(q2))
+    q2reg=p->q2.reg;
+  else
+    q2reg=0;
+
+  if(isreg(z)&&(THREE_ADDR||!compare_objects(&p->q2,&p->z))){
+    zreg=p->z.reg;
+  }else{
+    if(ISFLOAT(ztyp(p)))
+      zreg=f1;
     else
-        q1reg = 0;
+      zreg=t1;
+  }
+  
+  if((p->q1.flags&(DREFOBJ|REG))==DREFOBJ&&!p->q1.am){
+    p->q1.flags&=~DREFOBJ;
+    load_reg(f,t1,&p->q1,q1typ(p));
+    p->q1.reg=t1;
+    p->q1.flags|=(REG|DREFOBJ);
+  }
+  if(p->q1.flags&&LOAD_STORE&&!isreg(q1)){
+    if(p->code==ASSIGN&&isreg(z))
+      q1reg=p->z.reg;
+    else if(ISFLOAT(q1typ(p)))
+      q1reg=f1;
+    else
+      q1reg=t1;
+    load_reg(f,q1reg,&p->q1,q1typ(p));
+    p->q1.reg=q1reg;
+    p->q1.flags=REG;
+  }
 
     if (isreg(q2))
         q2reg = p->q2.reg;
@@ -992,95 +1039,87 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax offset)
 #if FIXED_SP
     pushed = 0;
 #endif
+  for(;p;p=p->next){
+    c=p->code;t=p->typf;
+    if(c==NOP) {p->z.flags=0;continue;}
+    if(c==ALLOCREG) {regs[p->q1.reg]=1;continue;}
+    if(c==FREEREG) {regs[p->q1.reg]=0;continue;}
+    if(c==LABEL) {emit(f,"%s%d:\n",labprefix,t);continue;}
+    if(c==BRA){
+      if(0/*t==exit_label&&framesize==0*/)
+	emit(f,ret);
+      else
+	emit(f,"\tb\t%s%d\n",labprefix,t);
+      continue;
+    }
+    if(c>=BEQ&&c<BRA){
+      emit(f,"\tb%s\t",ccs[c-BEQ]);
+      if(isreg(q1)){
+	emit_obj(f,&p->q1,0);
+	emit(f,",");
+      }
+      emit(f,"%s%d\n",labprefix,t);
+      continue;
+    }
+    if(c==MOVETOREG){
+      load_reg(f,p->z.reg,&p->q1,regtype[p->z.reg]->flags);
+      continue;
+    }
+    if(c==MOVEFROMREG){
+      store_reg(f,p->z.reg,&p->q1,regtype[p->z.reg]->flags);
+      continue;
+    }
+    if((c==ASSIGN||c==PUSH)&&((t&NQ)>POINTER||((t&NQ)==CHAR&&zm2l(p->q2.val.vmax)!=1))){
+      ierror(0);
+    }
+    /* switch commutative operands if suitable */
+    if(c==ADD||c==MULT||c==AND||c==XOR||c==OR){
+      if(compare_objects(&p->q2,&p->z)){
+	struct obj tmp;
+	tmp=p->q1;
+	p->q1=p->q2;
+	p->q2=tmp;
+      }
+    }
 
-    for (; p; p = p->next) {
-        c = p->code;
-        t = p->typf;
-        if (c == NOP) {
-            p->z.flags = 0;
-            continue;
-        }
-        if (c == ALLOCREG) {
-            regs[p->q1.reg] = 1;
-            continue;
-        }
-        if (c == FREEREG) {
-            regs[p->q1.reg] = 0;
-            continue;
-        }
-        if (c == LABEL) {
-            emit(f, "%s%d:\n", labprefix, t);
-            continue;
-        }
-        if (c == BRA) {
-            if (0 /*t==exit_label&&framesize==0*/)
-                emit(f, ret);
-            else
-                emit(f, "\tb\t%s%d\n", labprefix, t);
-            continue;
-        }
-        if (c >= BEQ && c < BRA) {
-            emit(f, "\tb%s\t", ccs[c - BEQ]);
-            if (isreg(q1)) {
-                emit_obj(f, &p->q1, 0);
-                emit(f, ",");
-            }
-            emit(f, "%s%d\n", labprefix, t);
-            continue;
-        }
-        if (c == MOVETOREG) {
-            load_reg(f, p->z.reg, &p->q1, regtype[p->z.reg]->flags);
-            continue;
-        }
-        if (c == MOVEFROMREG) {
-            store_reg(f, p->z.reg, &p->q1, regtype[p->z.reg]->flags);
-            continue;
-        }
-        if ((c == ASSIGN || c == PUSH) && ((t & NQ) > POINTER || ((t & NQ) == CHAR && zm2l(p->q2.val.vmax) != 1))) {
-            ierror(0);
-        }
-        p = preload(f, p);
-        c = p->code;
-        if (c == SUBPFP)
-            c = SUB;
-        if (c == ADDI2P)
-            c = ADD;
-        if (c == SUBIFP)
-            c = SUB;
-        if (c == CONVERT) {
-            if (ISFLOAT(q1typ(p)) || ISFLOAT(ztyp(p)))
-                ierror(0);
-            if (sizetab[q1typ(p) & NQ] < sizetab[ztyp(p) & NQ]) {
-                if (q1typ(p) & UNSIGNED)
-                    emit(f, "\tzext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
-                else
-                    emit(f, "\tsext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
-            }
-            save_result(f, p);
-            continue;
-        }
-        if (c == KOMPLEMENT) {
-            load_reg(f, zreg, &p->q1, t);
-            emit(f, "\tcpl.%s\t%s\n", dt(t), regnames[zreg]);
-            save_result(f, p);
-            continue;
-        }
-        if (c == SETRETURN) {
-            load_reg(f, p->z.reg, &p->q1, t);
-            BSET(regs_modified, p->z.reg);
-            continue;
-        }
-        if (c == GETRETURN) {
-            if (p->q1.reg) {
-                zreg = p->q1.reg;
-                save_result(f, p);
-            } else
-                p->z.flags = 0;
-            continue;
-        }
-        if (c == CALL) {
-            int reg;
-            /*FIXME*/
+    p=preload(f,p);
+    c=p->code;
+    if(c==SUBPFP) c=SUB;
+    if(c==ADDI2P) c=ADD;
+    if(c==SUBIFP) c=SUB;
+    if(c==CONVERT){
+      if(ISFLOAT(q1typ(p))||ISFLOAT(ztyp(p))) ierror(0);
+      if(sizetab[q1typ(p)&NQ]<sizetab[ztyp(p)&NQ]){
+	if(q1typ(p)&UNSIGNED)
+	  emit(f,"\tzext.%s\t%s\n",dt(q1typ(p)),regnames[zreg]);
+	else
+	  emit(f,"\tsext.%s\t%s\n",dt(q1typ(p)),regnames[zreg]);
+      }
+      save_result(f,p);
+      continue;
+    }
+    if(c==KOMPLEMENT){
+      load_reg(f,zreg,&p->q1,t);
+      emit(f,"\tcpl.%s\t%s\n",dt(t),regnames[zreg]);
+      save_result(f,p);
+      continue;
+    }
+    if(c==SETRETURN){
+      load_reg(f,p->z.reg,&p->q1,t);
+      BSET(regs_modified,p->z.reg);
+      continue;
+    }
+    if(c==GETRETURN){
+      if(p->q1.reg){
+        zreg=p->q1.reg;
+	save_result(f,p);
+      }else
+        p->z.flags=0;
+      continue;
+    }
+    if(c==CALL){
+      int reg;
+      /*FIXME*/
 #if 0      
       if(stack_valid&&(p->q1.flags&(VAR|DREFOBJ))==VAR&&p->q1.v->fi&&(p->q1.v->fi->flags&ALL_STACK)){
 	if(framesize+zum2ul(p->q1.v->fi->stack1)>stack)

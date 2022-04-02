@@ -1,9 +1,15 @@
-/*  $VER: vbcc (regs.c) $Revision: 1.10 $   */
+/*  $VER: vbcc (regs.c) $Revision: 1.16 $   */
 /*  Registerzuteilung           */
 
 #include "opt.h"
 
 static char FILE_[]=__FILE__;
+
+typedef struct regp {int treg;Var *tvar,*tmp;} regp;
+int sregsa[MAXR+1];
+
+void do_load_parms(regp [],flowgraph *);
+void load_one_parm(int,int,Var *,Var *,flowgraph *);
 
 #ifndef NO_OPTIMIZER
 
@@ -12,9 +18,7 @@ int *rvlist;
 
 static int const_vars;
 
-typedef struct regp {int treg;Var *tvar,*tmp;} regp;
-void do_load_parms(regp [],flowgraph *);
-void load_one_parm(int,int,Var *,Var *,flowgraph *);
+static bvtype bregs[BVSIZE(MAXR+1)/sizeof(bvtype)];
 
 Var *lparms[MAXR+1];
 
@@ -155,6 +159,25 @@ void load_reg_parms(flowgraph *fg)
     do_load_parms(regp,fg);
 }
 
+static int check_retreg(flowgraph *fg)
+{
+  IC *p;int retreg=0;
+  for(p=fg->start;p;p=p->next){
+    if(p->code==SETRETURN&&p->z.reg>=0){
+      retreg=p->z.reg;
+      break;
+    }
+  }
+  for(p=last_ic;retreg&&p;p=p->prev){
+    if(p->code==FREEREG){
+      if(p->q1.reg==retreg)
+	retreg=0;
+    }else
+      break;
+  }
+  if(DEBUG&1024) printf("check_retreg: %s\n",regnames[retreg]);
+  return retreg;
+}
 void insert_regs(flowgraph *fg1)
 /*  Fuegt Registervariablen in die ICs ein.                             */
 {
@@ -213,7 +236,7 @@ void insert_regs(flowgraph *fg1)
                 if(fg->regv[i]->index<vcount-rcount&&BTST(fg->av_out,fg->regv[i]->index)){
                 /*  Variable beim Austritt aktiv?   */
                     if(exit_save(fg,i)){
-                        IC *tp;
+		      IC *tp;int mark_retreg=0;
                         if(DEBUG&8192) printf("\thave to save it at end of block\n");
                         new=new_IC();
                         new->line=0;
@@ -240,8 +263,14 @@ void insert_regs(flowgraph *fg1)
                         /*  Vor FREEREGs und evtl. Branch+COMPARE/TEST setzen   */
                         if(fg->end){
                             tp=fg->end;
-                            while(tp!=fg->start&&(tp->code==FREEREG||tp->code==SETRETURN))
-                                tp=tp->prev;
+			    if(!tp->next){
+			      mark_retreg=check_retreg(fg1);
+			      if(DEBUG&1024) printf("save at end, markretreg=%s\n",regnames[mark_retreg]);
+			    }
+                            while(tp!=fg->start&&(tp->code==FREEREG||tp->code==SETRETURN||tp->code==NOP)){
+			      if(tp->code==SETRETURN) mark_retreg=0;
+			      tp=tp->prev;
+			    }
                             if(tp&&tp->code>=BEQ&&tp->code<=BRA){
                                 if(tp->code<BRA){
                                     int c;
@@ -255,6 +284,16 @@ void insert_regs(flowgraph *fg1)
                             }
                         }else tp=lic;
                         insert_IC_fg(fg,tp,new);
+			if(mark_retreg){
+			  IC *nop;
+			  insert_allocreg(fg,tp,ALLOCREG,mark_retreg);
+			  insert_allocreg(fg,new,FREEREG,mark_retreg);
+			  nop=new_IC();
+			  nop->code=NOP;
+			  nop->q1.flags=REG;
+			  nop->q1.reg=mark_retreg;
+			  insert_IC_fg(fg,new,nop);
+			}
                     }
                 }
                 if(fg->regv[i]->index>=vcount-rcount||BTST(fg->av_in,fg->regv[i]->index)){
@@ -321,6 +360,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
   /*  Laden/Speichern ausserhalb der Schleife geringer zu wichten.        */
   /*    if(end&&(!g->normalout||!g->normalout->loopend||g->normalout->loopend->normalout->index!=-2)) ierror(0);*/
   /*  alle auf 0  */
+
   for(i=0;i<vcount-rcount+const_vars;i++){
     if(i<vcount-rcount&&(vilist[i]->vtyp->flags&VOLATILE)){
       for(r=1;r<=MAXR;r++){
@@ -398,7 +438,8 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	      if(r==pr)
 		savings[i][r]+=cost_save_reg(r,vilist[i]);
 	      else
-		savings[i][r]+=(cost_save_reg(r,vilist[i])-cost_move_reg(pr,r));
+		/*savings[i][r]+=(cost_save_reg(r,vilist[i])-cost_move_reg(pr,r));*/ /* load_parms is less efficient */
+		savings[i][r]-=cost_load_reg(r,vilist[i]);
 	    }
 	  }
 	}
@@ -435,7 +476,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	for(i=0;i<vcount-rcount+const_vars;i++){
 	  if(i>=vcount-rcount||BTST(g->av_out,i)||BTST(g->av_gen,i))
 	    if(vi!=i&&savings[i][r]!=INT_MIN)
-	      savings[i][r]-=iterations*cost_load_reg(r,vilist[i])+cost_save_reg(r,vilist[i]);
+	      savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_save_reg(r,vilist[i]));
 	}
       }
     }
@@ -456,7 +497,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	    for(r=1;r<=MAXR;r++){
 	      if(!regsa[r]&&!BTST(g->regused,r)&&savings[i][r]!=INT_MIN&&regok(r,vt,-1)&&(!reg_pair(r,&rp)||(!regsa[rp.r1]&&!regsa[rp.r2]&&!BTST(g->regused,rp.r1)&&!BTST(g->regused,rp.r2)))){
 		int s=cost_savings(p,r,&p->q1);
-		if(s==INT_MIN)
+		if(s==INT_MIN||savings[i][r]==INT_MIN)
 		  savings[i][r]=INT_MIN;
 		else
 		  savings[i][r]+=iterations*s;
@@ -475,7 +516,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	  for(r=1;r<=MAXR;r++){
 	    if(!regsa[r]&&!BTST(g->regused,r)&&savings[i][r]!=INT_MIN&&regok(r,vt,-1)&&(!reg_pair(r,&rp)||(!regsa[rp.r1]&&!regsa[rp.r2]&&!BTST(g->regused,rp.r1)&&!BTST(g->regused,rp.r2)))){
 	      int s=cost_savings(p,r,&p->q2);
-	      if(s==INT_MIN)
+	      if(s==INT_MIN||savings[i][r]==INT_MIN)
 		savings[i][r]=INT_MIN;
 	      else
 		savings[i][r]+=iterations*s;
@@ -496,7 +537,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	  for(r=1;r<=MAXR;r++){
 	    if(!regsa[r]&&!BTST(g->regused,r)&&savings[i][r]!=INT_MIN&&regok(r,vt,-1)&&(!reg_pair(r,&rp)||(!regsa[rp.r1]&&!regsa[rp.r2]&&!BTST(g->regused,rp.r1)&&!BTST(g->regused,rp.r2)))){
 	      int s=cost_savings(p,r,&p->z);
-	      if(s==INT_MIN)
+	      if(s==INT_MIN||savings[i][r]==INT_MIN)
 		savings[i][r]=INT_MIN;
 	      else
 		savings[i][r]+=iterations*s;
@@ -511,7 +552,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	    if(i>=vcount-rcount||BTST(isused,i)){
 	      for(r=1;r<=MAXR;r++){
 		if(savings[i][r]!=INT_MIN&&BTST(p->q1.v->fi->regs_modified,r))
-		  savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_load_reg(r,vilist[i]));
+		  savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_save_reg(r,vilist[i]));
 	      }
 	    }	  
 	  }
@@ -520,7 +561,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	    if(i>=vcount-rcount||BTST(isused,i)){
 	      for(r=1;r<=MAXR;r++){
 		if(regscratch[r]&&savings[i][r]!=INT_MIN)
-		  savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_load_reg(r,vilist[i]));
+		  savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_save_reg(r,vilist[i]));
 	      }
 	    }
 	  }
@@ -537,6 +578,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
     }
   }
   /*  Maximum ermitteln   */
+  memset(bregs,0,sizeof(bregs));
   for(i=0;i<vcount-rcount+const_vars;i++){
     int m=0,t;Var *v;
     v=vilist[i];t=v->vtyp->flags;
@@ -546,13 +588,20 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
       for(r=0;r<=MAXR;r++)
 	savings[i][r]=INT_MIN;
     }else{
+      int one=0;
       for(r=1;r<=MAXR;r++){
 	/*  Falls Variable in best. Register muss.  */
 	if(r==abs(v->reg)&&!(v->flags&REGPARM)) savings[i][r]=INT_MAX;
 	if(regsa[r]||!regok(r,t,-1)) savings[i][r]=INT_MIN;
-	if(savings[i][r]>m) m=savings[i][r];
+	if(savings[i][r]>m){
+	  m=savings[i][r];
+	  one=r;
+	}else if(savings[i][r]==m){
+	  one=0;
+	}
       }
       savings[i][0]=m;
+      if(one) BSET(bregs,one); /* mark one register has unique value */
     }
   }
   if(DEBUG&8192){
@@ -562,19 +611,32 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	printf("%s=%d ",regnames[r],savings[i][r]);
       printf("\n");
     }
+    for(r=0;r<=MAXR;r++)
+      if(BTST(bregs,r))
+	printf("reg %s unique\n",regnames[r]);
   }
   /*  Suchen, welche Variablen/Registerkombination das beste Ergebnis */
   /*  liefert. Nur angenaehert, da sonst wohl zu aufwendig. Simplex?  */
   for(i=0;i<vcount-rcount+const_vars;i++) rvlist[i]=i;
   vqsort(rvlist,vcount-rcount+const_vars,sizeof(*rvlist),cmp_savings);
   for(i=0;i<vcount-rcount+const_vars;i++){
-    int use,m=0,prio=0,vi;
+    int use=0,m=0,prio=0,vi;
     vi=rvlist[i];
     /*if(vilist[vi]->flags&USEDASADR) continue;*/
     if(DEBUG&8192) printf("%d: (%s),%ld(best=%d)\n",i,vilist[vi]->identifier,zm2l(vilist[vi]->offset),savings[vi][0]);
     for(r=1;r<=MAXR;r++){
       if(!lregs[r]&&!regu[r]&&savings[vi][r]>=m&&(!reg_pair(r,&rp)||(!regu[rp.r1]&&!regu[rp.r2]))){
-	if(savings[vi][r]>m||reg_prio[r]>prio){
+	int better=0;
+	if(savings[vi][r]>m){
+	  better=1;
+	}else if(savings[vi][r]==m){
+	  if(reg_prio[r]>prio){
+	    better=1;
+	  }else if(BTST(bregs,use)&&!BTST(bregs,r)){
+	    better=1;
+	  }
+	}
+	if(better){
 	  m=savings[vi][r];prio=reg_prio[r];
 	  use=r;
 	}
@@ -1060,7 +1122,7 @@ void local_combine(flowgraph *fg)
       }
       pprev=p->prev;
       while(pprev&&pprev->code==NOP) pprev=pprev->prev;
-      if(pprev&&p->code==ASSIGN&&zmeqto(p->q2.val.vmax,sizetab[p->typf&NQ])&&(p->q1.flags&(VAR|DREFOBJ))==VAR&&pprev->z.flags==p->q1.flags&&p->q1.v==pprev->z.v&&ztyp(pprev)==q1typ(p)&&!BTST(used,p->q1.v->index)&&(pprev->code!=ASSIGN||zmeqto(pprev->q2.val.vmax,sizetab[pprev->typf&NQ]))){
+      if(pprev&&p->code==ASSIGN&&zmeqto(p->q2.val.vmax,sizetab[p->typf&NQ])&&(p->q1.flags&(VAR|DREFOBJ))==VAR&&pprev->z.flags==p->q1.flags&&p->q1.v==pprev->z.v&&(!(p->z.flags&VAR)||p->z.v!=p->q1.v)&&ztyp(pprev)==q1typ(p)&&!BTST(used,p->q1.v->index)&&(pprev->code!=ASSIGN||zmeqto(pprev->q2.val.vmax,sizetab[pprev->typf&NQ]))){
 	/* x op y ->tmp; move tmp->*p => x op y ->*p */
 	if(DEBUG&1024){
 	  printf("local combine(3):\n");
@@ -1196,14 +1258,14 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
     savings[rp.r2]=INT_MIN;
   }
   for(r=1;r<=MAXR;r++){
-    if(regu[r]||regsa[r]){
+    if(regu[r]||regsa[r]==REGSA_NEVER){
       savings[r]=INT_MIN;
       if(reg_pair(r,&rp)){
 	savings[rp.r1]=INT_MIN;
 	savings[rp.r2]=INT_MIN;
       }
     }else if(reg_pair(r,&rp)){
-      if(rp.r1==preferred||rp.r2==preferred||regu[rp.r1]||regsa[rp.r1]||regu[rp.r2]||regsa[rp.r2])
+      if(rp.r1==preferred||rp.r2==preferred||regu[rp.r1]||regsa[rp.r1]==REGSA_NEVER||regu[rp.r2]||regsa[rp.r2]==REGSA_NEVER)
 	savings[r]=INT_MIN;
     }
     if(savings[r]!=INT_MIN&&!regok(r,v->vtyp->flags,-1))
@@ -1211,13 +1273,14 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
   }
   for(r=1;r<=MAXR;r++){
     if(savings[r]!=INT_MIN&&reg_pair(r,&rp)){
-      if(regu[rp.r1]||regu[rp.r2]||regsa[rp.r1]||regsa[rp.r2])
+      if(regu[rp.r1]||regu[rp.r2]||regsa[rp.r1]==REGSA_NEVER||regsa[rp.r2]==REGSA_NEVER)
 	savings[r]=INT_MIN;
     }
   }
   while(1){
     if(!p){
-      if(!is_header) ierror(0);
+      if(!is_header)
+	ierror(0);
       break;
     }
     if(!p||(p!=fp&&p->code>=LABEL&&p->code<=BRA)) return 0;
@@ -1304,8 +1367,15 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
   r=0;
   savings[0]=0;
   for(tmp=1;tmp<=MAXR;tmp++){
-    if(savings[tmp]>savings[r]||(savings[tmp]==savings[r]&&reg_prio[tmp]>reg_prio[r]))
+    if(savings[tmp]>savings[r]){
       r=tmp;
+    }else if(savings[tmp]==savings[r]){
+      if(reg_prio[tmp]>reg_prio[r])
+	r=tmp;
+      else if(BTST(bregs,r)&&!BTST(bregs,tmp))
+	/* if equal, prefer to leave registers used by parameters */
+	r=tmp;
+    }
   }
   return r;
 }
@@ -1318,11 +1388,18 @@ void local_regs(flowgraph *fg)
   bvtype *inmem=mymalloc(vsize);
   if(DEBUG&9216) printf("assigning temporary variables to registers\n");
   memset(inmem,0,vsize);
+  memset(bregs,0,sizeof(bregs));
   for(i=0;i<=MAXR;i++) lparms[i]=0;
+  /* mark registers used by parameters */
+  for(p=first_ic;p;p=p->next){
+    if((p->q1.flags&VAR)&&p->q1.v->reg) BSET(bregs,p->q1.v->reg);
+    if((p->q2.flags&VAR)&&p->q2.v->reg) BSET(bregs,p->q2.v->reg);
+    if((p->z.flags&VAR)&&p->z.v->reg) BSET(bregs,p->z.v->reg);
+  }
   lfg=fg;
   while(lfg){
     if(DEBUG&1024) printf("block %d\n",lfg->index);
-    for(i=1;i<=MAXR;i++){lregv[i]=0; regu[i]=regsa[i]; lfg->regv[i]=0;}
+    for(i=1;i<=MAXR;i++){lregv[i]=0; regu[i]=(regsa[i]==REGSA_NEVER); lfg->regv[i]=0;}
     memset(&lfg->regused,0,RSIZE);
     lfg->calls=0;
     //    if(lfg==fg&&!lfg->in) is_header=1; else is_header=0;
@@ -1680,11 +1757,13 @@ void do_load_parms(regp regp[],flowgraph *fg)
       /* num_vars is already done, so mark it by -1 */
       regp[i].tmp->index=-1;
       /* allocate memory for recalc_offsets */
+#ifndef NO_OPTIMIZER
       if(fg){
 	regp[i].tmp->offset=l2zm(0L);
 	if(zmleq(recalc_start_offset,regsize[i]))
 	  recalc_start_offset=regsize[i];
       }
+#endif
       load_one_parm(0,regp[i].treg,regp[i].tmp,regp[i].tvar,fg);
       notdone=1;
     }
@@ -1695,9 +1774,11 @@ void load_one_parm(int freg,int treg,Var *fvar,Var *tvar,flowgraph *fg)
   IC *new;
   if(DEBUG&1) printf("lop: %s(%s)->%s(%s)\n",regnames[freg],fvar?fvar->identifier:empty,regnames[treg],tvar?tvar->identifier:empty);
   if(freg&&freg!=treg){
-    if(fg)
+    if(fg){
+#ifndef NO_OPTIMIZER
       insert_allocreg(fg,0,FREEREG,freg);
-    else
+#endif
+    }else
       insert_simple_allocreg(0,FREEREG,freg);
   }
   new=new_IC();
@@ -1737,8 +1818,10 @@ void load_one_parm(int freg,int treg,Var *fvar,Var *tvar,flowgraph *fg)
     new->typf2=INT;
   }
   if(fg){
+#ifndef NO_OPTIMIZER
     insert_IC_fg(fg,0,new);
     if(freg&&freg!=treg) insert_allocreg(fg,0,ALLOCREG,freg);
+#endif
   }else{
     insert_IC(0,new);
     if(freg&&freg!=treg) insert_simple_allocreg(0,ALLOCREG,freg);
@@ -1746,15 +1829,19 @@ void load_one_parm(int freg,int treg,Var *fvar,Var *tvar,flowgraph *fg)
   if(new->z.flags&REG){
     /*  ALLOCREG verschieben    */
     IC *p;
-    if(fg)
+    if(fg){
+#ifndef NO_OPTIMIZER
       insert_allocreg(fg,0,ALLOCREG,treg);
-    else
+#endif
+    }else
       insert_simple_allocreg(0,ALLOCREG,treg);
     for(p=new->next;p;p=p->next){
       if(p->code==ALLOCREG&&p->q1.reg==treg){
-	if(fg)
+	if(fg){
+#ifndef NO_OPTIMIZER
 	  remove_IC_fg(fg,p);
-	else
+#endif
+	}else
 	  remove_IC(p);
 	break;
       }
@@ -1785,6 +1872,7 @@ void simple_regs(void)
 	if(!regscratch[i]) continue;
       }
       if(regused[i]) continue;
+      if(sregsa[i]==REGSA_TEMPS) continue;
       if(reg_pair(i,&rp)){
 	if(regused[rp.r1]||regused[rp.r2]) continue;
       }
