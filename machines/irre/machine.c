@@ -240,6 +240,11 @@ void title(FILE *f) {
     }
 }
 
+/* generate .file end/footer */
+void footer(FILE *f) {
+    emit(f, "\t; .footer");
+}
+
 /* changes to a special section, used for __section() */
 static int special_section(FILE *f, struct Var *v) {
     char *sec;
@@ -945,6 +950,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
     for (c = 1; c <= MAXR; c++)
         regs[c] = regsa[c];
 
+    // file header
     title(f);
 
     for (m = p; m; m = m->next) {
@@ -1246,6 +1252,13 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
     //     v->fi->stack1 = stack; // ??
     // }
     // emit(f, "# stacksize=%lu%s\n", zum2ul(stack), stack_valid ? "" : "+??");
+
+    if (DEBUG & 1)
+        printf("gen_code end: (frame: %d)\n", frame_offset);
+    // if (frame_offset == 0) {
+    //     // footer of main
+    //     footer(f);
+    // }
 }
 
 int shortcut(int code, int typ) { return 0; }
