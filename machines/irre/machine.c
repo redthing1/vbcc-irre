@@ -88,7 +88,6 @@ char *g_attr_name[] = {"__interrupt", 0};
 /*  Private data and functions.         */
 /****************************************/
 
-#define THREE_ADDR 0
 #define DEFAULT_MAIN (g_flags[0] & USEDFLAG)
 #define LOAD_STORE (g_flags[1] & USEDFLAG)
 #define VOL_GPRS ((g_flags[2] & USEDFLAG) ? g_flags_val[2].l : NUM_GPRS / 2)
