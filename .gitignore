@@ -1,5 +1,6 @@
 machines/*/dt.[ch]
 bin/*
+bin/
 *.o
 doc/*.html
 doc/vbcc.aux
