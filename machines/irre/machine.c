@@ -3,8 +3,8 @@
         based on the generic RISC backend
 
         The specification for the CPU targeted by this backend can be found at:
-    - architecture: https://github.com/xdrie/irre-tools/blob/master/doc/arch.md
-    - assembler: https://github.com/xdrie/irre-tools/blob/master/doc/asm.md
+    - architecture: https://github.com/redthing1/irre-tools/blob/master/doc/arch.md
+    - assembler: https://github.com/redthing1/irre-tools/blob/master/doc/asm.md
 
 */
 
@@ -15,7 +15,7 @@ static char FILE_[] = __FILE__;
 /*  Public data that MUST be there.                             */
 
 /* Name and copyright. */
-char cg_copyright[] = "IRRE code-generator V0.2c (c) 2020, xdrie";
+char cg_copyright[] = "IRRE code-generator V0.2c (c) 2020, redthing1";
 
 #define FIXED_SP 1 // fixed sp mode
 

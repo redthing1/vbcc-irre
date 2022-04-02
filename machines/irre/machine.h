@@ -2,8 +2,8 @@
     IRRE backend for vbcc,
 	based on the generic RISC backend
 	The specification for the CPU targeted by this backend can be found at:
-    - architecture: https://github.com/xdrie/irre-tools/blob/master/doc/arch.md
-    - assembler: https://github.com/xdrie/irre-tools/blob/master/doc/asm.md
+    - architecture: https://github.com/redthing1/irre-tools/blob/master/doc/arch.md
+    - assembler: https://github.com/redthing1/irre-tools/blob/master/doc/asm.md
 */
 
 /* build-time configurable options: */
