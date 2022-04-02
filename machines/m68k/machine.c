@@ -1,4 +1,4 @@
-/*  $VER: vbcc (m68k/machine.c) $Revision: 1.104 $     */
+/*  $VER: vbcc (m68k/machine.c) $Revision: 1.114 $     */
 /*  Code generator for Motorola 680x0 CPUs. Supports 68000-68060+68881/2    */
 /*  and ColdFire.                                                           */
 /*  vasm, PhxAss and the GNU assembler is supported.                        */
@@ -361,6 +361,15 @@ static int scratchreg(int r,IC *p)
   }
 }
 
+static int am_uses_reg(IC *p,int i)
+{
+  if((p->q1.am&&((p->q1.am->dreg&127)==i||p->q1.am->basereg==i))
+     ||(p->q2.am&&((p->q2.am->dreg&127)==i||p->q2.am->basereg==i))
+     ||(p->z.am&&((p->z.am->dreg&127)==i||p->z.am->basereg==i)))
+    return 1;
+  return 0;
+}
+
 static int pget_reg(FILE *f,int flag,IC *p,int useq1)
 {
   int i;
@@ -368,18 +377,15 @@ static int pget_reg(FILE *f,int flag,IC *p,int useq1)
   flag=1+flag*8;
 
   if(useq1){
-    if(isreg(q1)&&p->q1.reg>=flag&&p->q1.reg<=flag+7&&scratchreg(p->q1.reg,p))
+    if(isreg(q1)&&p->q1.reg>=flag&&p->q1.reg<=flag+7&&scratchreg(p->q1.reg,p)&&!am_uses_reg(p,p->q1.reg))
       return p->q1.reg;
   }
 
   for(i=flag;i<flag+8;i++){
     if(regs[i]==1&&(!p||(i!=p->q1.reg&&i!=p->q2.reg&&i!=p->z.reg))){
       if(p){
-	if((p->q1.am&&((p->q1.am->dreg&127)==i||p->q1.am->basereg==i))
-	   ||(p->q2.am&&((p->q2.am->dreg&127)==i||p->q2.am->basereg==i))
-	   ||(p->z.am&&((p->z.am->dreg&127)==i||p->z.am->basereg==i))){
+	if(am_uses_reg(p,i))
 	  continue;
-	}
 	if(p->code==CALL&&is_arg_reg(p,i))
 	  continue;
       }
@@ -407,18 +413,15 @@ static int get_reg(FILE *f,int flag,IC *p,int useq1)
   flag=1+flag*8;
 
   if(useq1){
-    if(isreg(q1)&&p->q1.reg>=flag&&p->q1.reg<=flag+7&&scratchreg(p->q1.reg,p))
+    if(isreg(q1)&&p->q1.reg>=flag&&p->q1.reg<=flag+7&&scratchreg(p->q1.reg,p)&&!am_uses_reg(p,p->q1.reg))
       return p->q1.reg;
   }
 
   for(i=flag;i<flag+8;i++){
     if(regs[i]==0){
       if(p){
-	if((p->q1.am&&((p->q1.am->dreg&127)==i||p->q1.am->basereg==i))
-	   ||(p->q2.am&&((p->q2.am->dreg&127)==i||p->q2.am->basereg==i))
-	   ||(p->z.am&&((p->z.am->dreg&127)==i||p->z.am->basereg==i))){
+	if(am_uses_reg(p,i))
 	  continue;
-	}
 	if(p->code==CALL&&is_arg_reg(p,i))
 	  continue;
       }
@@ -538,7 +541,7 @@ static int compare_objects(obj *o1,obj *o2)
 {
   if((o1->flags&(REG|DREFOBJ))==REG&&(o2->flags&(REG|DREFOBJ))==REG&&o1->reg==o2->reg)
     return 1;
-  if(o1->flags==o2->flags&&o1->am==o2->am){
+  if((o1->flags&(KONST|VAR|DREFOBJ|REG|VARADR))==(o2->flags&(KONST|VAR|DREFOBJ|REG|VARADR))&&o1->am==o2->am){
     if(!(o1->flags&VAR)||(o1->v==o2->v&&zmeqto(o1->val.vmax,o2->val.vmax))){
       if(!(o1->flags&REG)||o1->reg==o2->reg){
 	return 1;
@@ -2116,7 +2119,13 @@ static int alignment(obj *o)
 {
     /*  wenn es keine Variable ist, kann man nichts aussagen    */
     long os;
-    if((o->flags&(DREFOBJ|VAR))!=VAR||o->am) return -1;
+    if(o->am||!(o->flags&VAR)) return -1;
+    if((o->flags&DREFOBJ)){
+      if(!(o->v->flags&NOTTYPESAFE)||!ISPOINTER(o->v->vtyp->flags)||zmeqto(falign(o->v->vtyp->next),l2zm(1L)))
+	return -1;
+      else
+	return 0;
+    }
     if(!o->v) ierror(0);
     os=zm2l(o->val.vmax);
     if(o->v->storage_class==AUTO||o->v->storage_class==REGISTER){
@@ -2127,7 +2136,11 @@ static int alignment(obj *o)
             if(!zmleq(l2zm(0L),o->v->offset)) os=os-zm2l(o->v->offset);
              else              os=os-(zm2l(o->v->offset)+zm2l(szof(o->v->vtyp)));
         }
+    }else{
+      if(!(o->v->flags&(TENTATIVE|DEFINED))&&zmeqto(falign(o->v->vtyp),l2zm(1L)))
+	return -1;
     }
+    
     return os&3;
 }
 static void stored0d1(FILE *f,obj *o,int t)
@@ -2420,7 +2433,7 @@ static void assign(FILE *f,IC *p,obj *q,obj *z,int c,long size,int t)
     }
     /*  wenn Typ==CHAR, dann ist das ein inline_memcpy und wir nehmen   */
     /*  das unguenstigste Alignment an                                  */
-    if((t&NQ)==CHAR){ a1=1;a2=2;}
+    /*if((t&NQ)==CHAR){ a1=1;a2=2;}*/
     
     if(c==PUSH&&(a1&1)==0&&(a2&1)==0){
       cpstr="\tmove.%c\t-(%s),-(%s)\n";
@@ -3363,20 +3376,59 @@ int freturn(type *t)
 int cost_savings(IC *p,int r,obj *o)
 {
   int c=p->code;
-  if(o->flags&VKONST) return INT_MIN;
+  if((r==a6||r==d7||r==d6d7)&&!RESERVEREGS) return -1;
+  if(c==SETRETURN&&r==p->z.reg&&!(o->flags&DREFOBJ)) return 3;
+  if(c==GETRETURN&&r==p->q1.reg&&!(o->flags&DREFOBJ)) return 3;
+  if(o->flags&VKONST){
+    int t;
+    if(CPU==68040) return 0;
+    t=o->v->ctyp&NQ;
+    if(ISFLOAT(t)) return 2;
+    if(t==CHAR&&r>=a0&&r<=a7) return INT_MIN;
+    if(t==LLONG) return 0;
+    if(cf&&(t<INT)&&p->q2.flags) return INT_MIN;
+    eval_const(&o->v->cobj.val,t);
+    if(zmeqto(vmax,Z0)) return 0;
+    if(o->flags&DREFOBJ) return 0;
+    if((p->code==ASSIGN&&o==&p->q1)||p->code==PUSH||p->code==SETRETURN){
+      if(p->code==PUSH||(p->z.flags&DREFOBJ)||
+	 ((p->z.flags&VAR)&&(p->z.v->storage_class==STATIC||p->z.v->storage_class==EXTERN))){
+	if(r>=d0&&r<=d7)
+	  return 2;
+	else
+	  return 1;
+      }
+      return 0;
+    }
+    if(c==ADD||c==SUB||c==ADDI2P||c==SUBIFP||c==SUBPFP){
+      if(zmleq(vmax,l2zm(8L))&&zmleq(l2zm(-8L),vmax)) return 0;
+      if(p->flags&EFF_IC) return 0;
+      if(r>=d0&&r<=d7)
+	return 2;
+      else
+	return 1;
+    }
+    if(c==COMPARE){
+      if(r>=d0&&r<=d7)
+	return 2;
+      else
+	return 1;
+    }
+    if(r>=a0&&r<=a7) return INT_MIN;
+    /* TODO: which allocations are useful? */
+    return 0;
+  }
   if(o->flags&DREFOBJ){
     if(r>=a0&&r<=a7){
-      if(r==a6&&!RESERVEREGS) return -1;
       return 4;
     }
   }
   if((c==ADDI2P||c==SUBIFP||c==ADDRESS)&&(o==&p->q1||o==&p->z)&&r>=a0&&r<=a7){
-    if(r==a6&&!RESERVEREGS) return -1;
     return 4;
   }
   if(r>=a0&&r<=a7){
     if(o->flags&DREFOBJ) ierror(0);
-    if(c!=GETRETURN&&c!=SETRETURN&&c!=ASSIGN&&c!=PUSH&&c!=TEST&&c!=COMPARE){
+    if(c!=GETRETURN&&c!=SETRETURN&&c!=ASSIGN&&c!=PUSH&&c!=TEST&&c!=COMPARE&&c!=CONVERT){
       if(c==ADDI2P||c==SUBIFP){
 	if(o==&p->q2)
 	  return INT_MIN;
@@ -3387,14 +3439,18 @@ int cost_savings(IC *p,int r,obj *o)
 	return INT_MIN;
       }
     }
+    if(c==CONVERT&&((p->typf&NQ)==CHAR||(p->typf2&NQ)==CHAR||ISFLOAT(p->typf)||ISFLOAT(p->typf2)))
+      return INT_MIN;
   }
-  if(c==SETRETURN&&r==p->z.reg&&!(o->flags&DREFOBJ)) return 3;
-  if(c==GETRETURN&&r==p->q1.reg&&!(o->flags&DREFOBJ)) return 3;
+
   if(c==TEST&&r>=d0&&r<=d7){
-    if(r==d7&&!RESERVEREGS) return -1;
     return 3;
   }
-  if((r==a6||r==d7||r==d6d7)&&!RESERVEREGS) return -1;
+  if(o==&p->z&&(p->q1.flags&VKONST)){
+    eval_const(&p->q1.v->cobj.val,p->q1.v->ctyp&NQ);
+    if(zmleq(vmax,l2zm(127L))&&zmleq(l2zm(-128L),vmax)&&r>=d0&&r<=d7)
+      return 3;
+  }
   return 2;
 }
 
@@ -3908,7 +3964,8 @@ void gen_code(FILE *f,IC *p,Var *v,zmax offset)
       if(!regs[p->z.am->basereg]) {pric2(stdout,p);printf("am=%p b=%s,i=%s,o=%ld,s=%d\n",(void*)p->z.am,mregnames[p->z.am->basereg],mregnames[p->z.am->dreg&127],p->z.am->dist,p->z.am->skal);ierror(0);}
       if(p->z.am->dreg&&!regs[p->z.am->dreg&127]) {printf("Register %s:\n",mregnames[p->z.am->dreg&127]);ierror(0);}
     }
-    if((p->q1.flags&REG)&&!regs[p->q1.reg]&&p->code!=MOVEFROMREG){printf("Register %s:\n",mregnames[p->q1.reg]);pric2(stdout,p);terror("illegal use of register");}
+    if((p->q1.flags&REG)&&!regs[p->q1.reg]&&p->code!=MOVEFROMREG){
+      printf("Register %s:\n",mregnames[p->q1.reg]);pric2(stdout,p);terror("illegal use of register");}
     if((p->q2.flags&REG)&&!regs[p->q2.reg]){printf("Register %s:\n",mregnames[p->q2.reg]);pric2(stdout,p);terror("illegal use of register");}
     if((p->z.flags&REG)&&!regs[p->z.reg]&&p->code!=MOVETOREG){printf("Register %s:\n",mregnames[p->z.reg]);pric2(stdout,p);terror("illegal use of register");}
     /*        if((p->q2.flags&REG)&&(p->z.flags&REG)&&p->q2.reg==p->z.reg){pric2(stdout,p);ierror(0);}*/
@@ -5346,7 +5403,7 @@ int handle_pragma(const char *s)
   return 0;
 }
 
-void add_var_hook(const char *identifier, type *t, int storage_class,const_list *clist)
+void add_var_hook_pre(const char *identifier, type *t, int storage_class,const_list *clist)
 {
   if(!add_stdargs) return;
   if(ISFUNC(t->flags))

@@ -1,4 +1,4 @@
-/*  $VER: vbcc (alias.c) $Revision: 1.4 $  */
+/*  $VER: vbcc (alias.c) $Revision: 1.5 $  */
 /*  Listen benutzter/veraenderter Variablen und Behandlung von Decknamen.   */
 
 #include "opt.h"
@@ -749,7 +749,8 @@ void create_alias(flowgraph *fg)
 		    cnt++;
 		  }
 		}
-		if(cnt==1){
+		if(cnt==1&&all_preds){
+		  if(DEBUG&1024) {printf("replacing indirect call by single target:\n");pric2(stdout,p);}
 		  p->q1.flags=VAR;
 		  p->q1.val.vmax=l2zm(0L);
 		  p->q1.v=p->call_list[0].v;
