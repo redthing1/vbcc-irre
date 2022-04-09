@@ -138,7 +138,7 @@ static char *udt[MAX_TYPE + 1] = {"??", "uc", "us", "ui", "ul", "ull", "f", "d",
 // static int stack_valid;
 static int section = -1, newobj;
 static char *codename = "%%section\ttext\n", *dataname = "%%section\tdata\n", *bssname = "%%section\tbss\n",
-            *rodataname = "%%section\trodata\n";
+            *rodataname = "%%section\tdata\n";
 
 /* return-instruction */
 static char *ret = "\tret\n";
@@ -523,7 +523,8 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
 
         } else {
             if (p->v->storage_class == STATIC) {
-                emit(f, "::%s[??]%ld", labprefix, zm2l(p->v->offset));
+                // emit(f, "::%s[??]%ld", labprefix, zm2l(p->v->offset));
+                emit(f, "::%s%ld", labprefix, zm2l(p->v->offset));
             } else {
                 emit(f, "::%s%s", idprefix, p->v->identifier);
             }
