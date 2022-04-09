@@ -551,7 +551,7 @@ static void function_top(FILE *f, struct Var *v, long offset) {
     }
     if (v->storage_class == EXTERN) {
         if ((v->flags & (INLINEFUNC | INLINEEXT)) != INLINEFUNC)
-            emit(f, "\t; .global\t%s%s\n", idprefix, v->identifier);
+            emit(f, "%%global\t%s%s\n", idprefix, v->identifier);
         emit(f, "%s%s:\n", idprefix, v->identifier);
     } else
         emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
@@ -829,7 +829,7 @@ void gen_var_head(FILE *f, struct Var *v)
         newobj = 1;
     }
     if (v->storage_class == EXTERN) {
-        emit(f, "\t; .globl\t%s%s\n", idprefix, v->identifier);
+        emit(f, "%%global\t%s%s\n", idprefix, v->identifier);
         if (v->flags & (DEFINED | TENTATIVE)) {
             if (!special_section(f, v)) {
                 if (v->clist && (!constflag || (g_flags[2] & USEDFLAG)) && section != DATA) {
@@ -852,8 +852,8 @@ void gen_var_head(FILE *f, struct Var *v)
                 gen_align(f, falign(v->vtyp));
                 emit(f, "%s%s:\n", idprefix, v->identifier);
             } else {
-                // .global
-                emit(f, "\t; .global\t%s%s\n", idprefix, v->identifier);
+                // add global directive
+                emit(f, "%%global\t%s%s\n", idprefix, v->identifier);
                 // make variable label
                 emit(f, "\t %s%s:\t; global variable\n", idprefix, v->identifier);
                 // commons (.lcomm, etc.)
