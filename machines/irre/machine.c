@@ -1085,9 +1085,9 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
                 ierror(0);
             if (sizetab[q1typ(p) & NQ] < sizetab[ztyp(p) & NQ]) {
                 if (q1typ(p) & UNSIGNED)
-                    emit(f, "\tzext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
+                    emit(f, "\t; zext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
                 else
-                    emit(f, "\tsext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
+                    emit(f, "\t; sext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
             }
             save_result(f, p);
             continue;
