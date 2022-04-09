@@ -1255,7 +1255,7 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
     // emit(f, "# stacksize=%lu%s\n", zum2ul(stack), stack_valid ? "" : "+??");
 
     if (DEBUG & 2)
-        printf("gen_code end: (frame: %d)\n", frame_offset);
+        printf("gen_code end: (frame: %ld)\n", frame_offset);
     // if (frame_offset == 0) {
     //     // footer of main
     //     footer(f);
