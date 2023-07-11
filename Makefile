@@ -5,9 +5,14 @@ LDFLAGS = -lm
 MKDIR = mkdir -p
 RM = rm -f
 INSTALL = install
+DTGEN_EXTRA =
 
 ifdef COMSPEC
 X = .exe
+endif
+
+ifdef DTAUTO
+DTGEN_EXTRA = -default
 endif
 
 # native version; used to create dtgen
@@ -188,10 +193,10 @@ bin/dtgen$X: datatypes/dtgen.c datatypes/datatypes.h datatypes/dtconv.h
 	$(NCC) datatypes/dtgen.c -o $@ -Idatatypes $(NLDFLAGS)
 
 $(TRGDIR)/dt.h: bin/dtgen$X $(TRGDIR)/machine.dt
-	bin/dtgen$X $(TRGDIR)/machine.dt $(TRGDIR)/dt.h $(TRGDIR)/dt.c
+	bin/dtgen$X $(TRGDIR)/machine.dt $(TRGDIR)/dt.h $(TRGDIR)/dt.c $(DTGEN_EXTRA)
 
 $(TRGDIR)/dt.c: bin/dtgen$X $(TRGDIR)/machine.dt
-	bin/dtgen$X $(TRGDIR)/machine.dt $(TRGDIR)/dt.h $(TRGDIR)/dt.c
+	bin/dtgen$X $(TRGDIR)/machine.dt $(TRGDIR)/dt.h $(TRGDIR)/dt.c $(DTGEN_EXTRA)
 
 $(TRGDIR)/dt.o: $(TRGDIR)/dt.h $(TRGDIR)/dt.c
 	$(CC) -c $(TRGDIR)/dt.c -o $@ -I$(TRGDIR) -Idatatypes

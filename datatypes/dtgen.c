@@ -54,6 +54,8 @@ char *nt[TYPECNT+1];
 FILE *fin,*cout,*hout;
 int crosscompiler;
 
+int use_defaults;
+
 void *mymalloc(size_t size)
 {
   void *p=malloc(size);
@@ -129,6 +131,9 @@ char *yndefault(char *spec,int yn)
     
 int askyn(char *def)
 {
+  if (use_defaults) {
+    return *def=='y';
+  }
   char in[8];
   do{
     printf("Type y or n [%s]: ",def);
@@ -141,6 +146,9 @@ int askyn(char *def)
 
 char *asktype(char *def)
 {
+  if (use_defaults) {
+    return def;
+  }
   char *in=mymalloc(128);
   printf("Enter that type[%s]: ",def);
   fflush(stdout);
@@ -248,7 +256,7 @@ int main(int argc,char **argv)
 {
   char type[128],spec[128];
   int i,r;
-  if(argc!=4){ printf("Usage: dtgen <config-file> <output-file.h> <output-file.c>\n");exit(EXIT_FAILURE);}
+  if(argc!=4 && argc!=5){ printf("Usage: dtgen <config-file> <output-file.h> <output-file.c> [-default]\n");exit(EXIT_FAILURE);}
 /*   printf("%d datatypes, %d conversions\n",dtcnt,cnvcnt); */
   have=mymalloc(dtcnt*sizeof(*have));
   memset(have,-1,sizeof(*have)*dtcnt);
@@ -258,6 +266,7 @@ int main(int argc,char **argv)
   if(!hout){ printf("Could not open <%s> for output!\n",argv[2]);exit(EXIT_FAILURE);}
   cout=fopen(argv[3],"w");
   if(!hout){ printf("Could not open <%s> for output!\n",argv[3]);exit(EXIT_FAILURE);}
+  use_defaults = argc == 5 && !strcmp(argv[4], "-default");
   printf("Are you building a cross-compiler?\n");
   crosscompiler=askyn("y");
   for(i=1;i<=TYPECNT;i++){
