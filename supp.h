@@ -1,4 +1,4 @@
-/*  $VER: vbcc (supp.h) $Revision: 1.50 $     */
+/*  $VER: vbcc (supp.h) $Revision: 1.58 $     */
 
 
 #ifndef SUPP_H
@@ -318,9 +318,10 @@ typedef struct Var{
 #define NOTINTU 32768       /* variable not (yet) defined in this translation-unit */
 #define REFERENCED 65536    /* variable referenced */
 #define STATICAUTO 131072   /* auto variable converted to static */
-#define INLINEFUNC (REFERENCED*2)
+#define INLINEFUNC (STATICAUTO*2)
 #define INLINEEXT (INLINEFUNC*2)
-#define BUILTIN (INLINEFUNC*2)
+#define BUILTIN (INLINEEXT*2)
+#define NEEDS (BUILTIN*2)
 
 /* C-only */
 typedef struct struct_list{
@@ -574,14 +575,17 @@ extern zmax max_offset;
 extern int function_calls,vlas;
 extern int coloring;
 extern int dmalloc;
+extern int sec_per_obj;
 extern int disable;
 extern int misracheck,misraversion,misracomma,misratok;
 extern int pack_align;
 extern int short_push;
 extern int static_cse,dref_cse;
+extern int no_eff_ics,early_eff_ics;
 extern int force_statics,prefer_statics;
 extern int range_opt;
 extern int default_unsigned;
+extern Var *add_attr_haddecl;
 
 /*  Das haette ich gern woanders    */
 extern struct struct_declaration *add_sd(struct struct_declaration *,int);
@@ -699,6 +703,7 @@ extern Var *vlength_szof(type *);
 extern zmax struct_offset(struct_declaration *,const char *);
 extern zmax falign(type *);
 int get_first_base_type(type *);
+extern int objs_equal(obj *,obj *,int);
 extern void eval_const(union atyps *,int);
 extern int get_clist_byte(type *,const_list *, zmax, zuchar *);
 extern zumax get_clist_int(type *, const_list *, zmax, int, int *);
@@ -782,7 +787,6 @@ hashtable *new_hashtable(size_t);
 size_t hashcode(char *);
 void add_hashentry(hashtable *,char *,hashdata);
 hashdata find_name(hashtable *,char *);
-
 
 #ifdef HAVE_TARGET_PRAGMAS
 extern int handle_pragma(const char *);

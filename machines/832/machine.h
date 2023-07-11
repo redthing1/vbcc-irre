@@ -11,6 +11,9 @@
 
 #include "dt.h"
 
+/* Define this if you need to build with 0.9g */
+/* #define V09G */
+
 /* internally used by the backend */
 #define FIRST_GPR 1
 #define LAST_GPR (FIRST_GPR+NUM_GPRS-1)
@@ -33,7 +36,7 @@ struct AddressingMode{
 #define MAXR NUM_GPRS+NUM_FPRS+NUM_CCRS
 
 /*  Number of commandline-options the code-generator accepts.       */
-#define MAXGF 0
+#define MAXGF 3
 
 /*  If this is set to zero vbcc will not generate ICs where the     */
 /*  target operand is the same as the 2nd source operand.           */
@@ -47,11 +50,13 @@ struct AddressingMode{
 
 /*  If the bytes of an integer are ordered most significant byte    */
 /*  byte first and then decreasing set BIGENDIAN to 1.              */
-#define BIGENDIAN 0
+
+extern char flag_832_bigendian;
+#define BIGENDIAN (flag_832_bigendian)
 
 /*  If the bytes of an integer are ordered lest significant byte    */
 /*  byte first and then increasing set LITTLEENDIAN to 1.           */
-#define LITTLEENDIAN 1
+#define LITTLEENDIAN (!flag_832_bigendian)
 
 /*  Note that BIGENDIAN and LITTLEENDIAN are mutually exclusive.    */
 
@@ -102,10 +107,10 @@ struct reg_handle{
    peephole-optimizations of the generated assembly-output */
 #define EMIT_BUF_LEN 1024 /* should be enough */
 /* number of asm-output lines buffered */
-#define EMIT_BUF_DEPTH 4
+#define EMIT_BUF_DEPTH 16
 
 /*  We have no asm_peephole to optimize assembly-output */
-#define HAVE_TARGET_PEEPHOLE 0
+#define HAVE_TARGET_PEEPHOLE 1
 
 /* we do not have a mark_eff_ics function, this is used to prevent
    optimizations on code which can already be implemented by efficient
@@ -126,6 +131,9 @@ struct reg_handle{
 /* we do not need register-pairs */
 #undef HAVE_REGPAIRS
 
+/* We (will eventually) use libcalls for 64-bit and float support */
+/* Enabling this completely changes code generation - investigate. */
+#define HAVE_LIBCALLS 0
 
 /* do not create CONVERT ICs from integers smaller than int to floats */
 #define MIN_INT_TO_FLOAT_TYPE INT

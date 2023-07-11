@@ -62,7 +62,7 @@ int regscratch[MAXR+1];
 /* specifies the priority for the register-allocator, if the same
    estimated cost-saving can be obtained by several registers, the
    one with the highest priority will be used */
-// int reg_prio[MAXR+1];
+int reg_prio[MAXR+1];
 
 /* an empty reg-handle representing initial state */
 struct reg_handle empty_reg_handle={0};
@@ -124,10 +124,8 @@ static char *sym_name(struct Var *var)
 
 	if (isstatic(var->storage_class))
 		snprintf(sym, sizeof(sym)-1, "%s%ld", labprefix, zm2l(var->offset));
-	else if (isextern(var->storage_class))
-		snprintf(sym, sizeof(sym)-1, "%s%s", idprefix, var->identifier);
 	else
-		ierror(0);
+		snprintf(sym, sizeof(sym)-1, "%s%s", idprefix, var->identifier);
 
 	return sym;
 }
@@ -138,19 +136,6 @@ static long const2long(struct obj *o, int dtyp)
 		ierror(0);
 	eval_const(&o->val, dtyp);
 	return zm2l(vmax);
-}
-
-static int const_is_small(long v)
-{
-	v = v & 0xffff;
-
-	if ((v & 0xff00) == 0) {
-		return 1;
-	} else if ((v & 0xff00) == 0xff00) {
-		return 1;
-	} else {
-		return 0;
-	}
 }
 
 struct gc_state
@@ -266,35 +251,6 @@ _gc_emit_mov(struct gc_state *gc, int dst, int src)
 	emit(gc->f, "\tmov\t%s, %s\n", regnames[dst], regnames[src]);
 
 	BSET(regs_modified, dst);
-
-	gc->reg_lw = isgpr(dst) ? dst : 0;
-}
-
-/* Emit swap between A & X/Y */
-static void
-_gc_emit_swap(struct gc_state *gc, int ra, int rxy)
-{
-	emit(gc->f, "\tswap\t%s, %s\n", regnames[ra], regnames[rxy]);
-	gc->reg_lw = 0;
-}
-
-/* Emit a constant load */
-static void
-_gc_emit_const_load(struct gc_state *gc, int dst, long imm)
-{
-	imm = _gc_emit_imm(gc, imm);
-
-#if 0
-	if (dst == R_A) {
-		_gc_emit(gc, "\tmov\t%s, %d\n", regnames[dst], imm);
-	} else {
-		_gc_emit(gc, "\timm\t%d\n", imm);
-		_gc_emit(gc, "\tmov\t%s, %s\n", regnames[dst], regnames[R_I]);
-	}
-#else
-	_gc_emit(gc, "\tmov\t%s, %d\n", regnames[dst], imm);
-	_gc_emit_mov(gc, dst, R_A);
-#endif
 
 	gc->reg_lw = isgpr(dst) ? dst : 0;
 }
@@ -469,15 +425,15 @@ _gc_store_to_mem(struct gc_state *gc, int val_reg, int dtyp,
 			/* 32 bit access */
 			_gc_emit_mov(gc, R_A, rp.r1);
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const+0));
+				tiny ? (ptr_const+0) : _gc_emit_imm(gc, ptr_const+0));
 			_gc_emit_mov(gc, R_A, rp.r2);
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const+1));
+				tiny ? (ptr_const+1) : _gc_emit_imm(gc, ptr_const+1));
 		} else {
 			/* 16 bit access */
 			_gc_emit_mov(gc, R_A, val_reg);
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const));
+				tiny ? ptr_const : _gc_emit_imm(gc, ptr_const));
 		}
 	}
 }
@@ -587,17 +543,17 @@ _gc_load_from_mem(struct gc_state *gc, int val_reg, int dtyp,
 		if (is_pair) {
 			/* 32 bit access */
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const+0));
+				tiny ? (ptr_const+0) : _gc_emit_imm(gc, ptr_const+0));
 			if (dtyp == PPOINTER) _gc_emit_nop(gc);
 			_gc_emit_mov(gc, rp.r1, R_A);
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const+1));
+				tiny ? (ptr_const+1) : _gc_emit_imm(gc, ptr_const+1));
 			if (dtyp == PPOINTER) _gc_emit_nop(gc);
 			_gc_emit_mov(gc,rp.r2, R_A);
 		} else {
 			/* 16 bit access */
 			_gc_emit(gc, "\t%s\tA, [$%d]\n", opcode,
-				_gc_emit_imm(gc, ptr_const));
+				tiny ? ptr_const : _gc_emit_imm(gc, ptr_const));
 			if (dtyp == PPOINTER) _gc_emit_nop(gc);
 			_gc_emit_mov(gc, val_reg, R_A);
 		}
@@ -661,7 +617,7 @@ _gc_op_pre(struct gc_state *gc, struct IC *p, int n_op,
 		*r_q1 = R_I;
 		*k = const2long(&p->q1, q1typ(p));
 	} else {
-		if (!is32b && (isreg(&p->q2) || isconst(&p->q2) || (n_op < 2)))
+		if (isreg(&p->q2) || isconst(&p->q2) || (n_op < 2))
 			*r_q1 = R_A;
 		else
 			*r_q1 = z;
@@ -778,7 +734,7 @@ _gc_load_op(struct gc_state *gc, struct obj *q, int dst, int typf)
 			char *sym = sym_name(q->v);
 
 			if (!tiny) _gc_emit(gc, "\timm\t$(hi(%s+%d))\n", sym, ofs);
-			_gc_emit(gc, "\tmov\tA, $(lo(%s+%d))\n", sym, ofs);
+			_gc_emit(gc, "\tmov\tA, [$(lo(%s+%d))]\n", sym, ofs);
 			_gc_emit_mov(gc, dst, R_A);
 		} else if (!(q->flags & REG)) {
 			/* Variable load */
@@ -834,85 +790,6 @@ _gc_store_op(struct gc_state *gc, struct obj *z, int src, int typf)
 	}
 }
 
-/* Load address of object into R_A (and returns pointer type) */
-static void
-_gc_get_addr(struct gc_state *gc, struct obj *o, int *ptyp)
-{
-	/* Handle the no DREFOBJ case, we just have a VAR */
-	if (o->flags == VAR)
-	{
-		long ofs = zm2l(zl2zm(o->val.vlong));
-
-		/* Type */
-		*ptyp = pointer_type(o->v->vtyp);
-
-		if (isauto(o->v->storage_class))
-		{
-			/* Variable on the stack */
-			long sp_offset = _gc_real_offset(gc, o->v, ofs);
-
-			_gc_emit_mov(gc, R_A, R_Y);
-			_gc_emit_alu(gc, "add", R_A, R_A, R_I, sp_offset);
-		}
-		else if (isstatic(o->v->storage_class) || isextern(o->v->storage_class))
-		{
-			/* Static / Extern variable */
-			int tiny = (pointer_type(o->v->vtyp) == DPOINTER) ? TINY_DMEM : TINY_PMEM;
-			char *sym = sym_name(o->v);
-
-			if (!tiny) _gc_emit(gc, "\timm\t$(hi(%s+%d))\n", sym, ofs);
-			_gc_emit(gc, "\tmov\tA, $(lo(%s+%d))\n", sym, ofs);
-		}
-		else
-			ierror(0);
-
-		return;
-	}
-
-	if (o->flags == (VAR | VARADR))
-	{
-		/* Variable address load */
-		int tiny = (pointer_type(o->v->vtyp) == DPOINTER) ? TINY_DMEM : TINY_PMEM;
-		long ofs = zm2l(zl2zm(o->val.vlong));
-		char *sym = sym_name(o->v);
-
-		*ptyp = pointer_type(o->v->vtyp);
-
-		if (!tiny) _gc_emit(gc, "\timm\t$(hi(%s+%d))\n", sym, ofs);
-		_gc_emit(gc, "\tmov\tA, $(lo(%s+%d))\n", sym, ofs);
-
-		return;
-	}
-
-	/* At this point, it needs to be a dereference */
-	if (!(o->flags & DREFOBJ))
-		ierror(0);
-
-	/* Type is easy */
-	*ptyp = o->dtyp;
-
-	/* In a register already ? */
-	if (o->flags & REG) {
-		_gc_emit_mov(gc, R_A, o->reg);
-		return;
-	}
-
-	/* A constant ? */
-	if (o->flags & KONST) {
-		long ptr_const = const2long(o, o->dtyp);
-		_gc_emit(gc, "\tmov\tA, $%d\n", _gc_emit_imm(gc, ptr_const));
-		return;
-	}
-
-	/* Need to load the actual pointer from a variable */
-	if (o->flags & VAR) {
-		_gc_load_from_mem(gc, R_A, pointer_type(o->v->vtyp), zm2l(zl2zm(o->val.vlong)), 0, o->v);
-		return;
-	}
-
-	/* Huh ? */
-	ierror(0);
-}
 
 static void
 gc_func_begin(struct gc_state *gc,
@@ -930,10 +807,10 @@ gc_func_begin(struct gc_state *gc,
 		gc->reg_busy[i] = regsa[i];
 
 	/* Section and symbol setup */
-	emit(f, "\t.text\n");
 	if (isextern(v->storage_class))
-		emit(f, "\t.global\t%s\n", sym_name(v));
-	emit(f, "%s:\n", sym_name(v));
+		emit(f, "\t.text\n%s%s:\n", idprefix, v->identifier);
+	else
+		emit(f, "\t.text\n%s%d:\n", labprefix, zm2l(v->offset));
 
 	/* Debug */
 #ifdef DBG
@@ -1048,89 +925,9 @@ gc_func_end(struct gc_state *gc,
 static void
 gc_func_assign(struct gc_state *gc, struct IC *node)
 {
+	/* FIXME: Only works for size=1 | size=2 ... */
 	int v_reg;
 
-	/* First handle non-scalar types */
-	if (!ISSCALAR(q1typ(node)))
-	{
-		int src_ptyp, dst_ptyp;
-		int src_reg, dst_reg;
-		long sz = zm2l(node->q2.val.vmax);
-
-		/* Save Y */
-		_gc_emit_mov(gc, R_A, R_Y);
-		_gc_emit_mov(gc, R_RF, R_A);
-
-		/* Load addresses for src/dst */
-		_gc_get_addr(gc, &node->q1, &src_ptyp);
-		_gc_emit_mov(gc, R_X, R_A);
-
-		_gc_get_addr(gc, &node->z,  &dst_ptyp);
-
-		if ((dst_ptyp == PPOINTER) && (src_ptyp == DPOINTER)) {
-			_gc_emit_swap(gc, R_X, R_A);
-			_gc_emit_mov(gc, R_Y, R_A);
-		} else {
-			_gc_emit_mov(gc, R_Y, R_A);
-		}
-
-		/* Generate the 4 possible cases :
-		 *  dmem [Y] <= dmem [X]
-		 *  dmem [Y] <= pmem [X]
-		 *  pmem [X] <= dmem [Y]
-		 *  pmem [Y] <= pmem [X]
-		 */
-		_gc_emit_const_load(gc, R_RE, sz);
-
-		if ((dst_ptyp == DPOINTER) && (src_ptyp == DPOINTER))
-		{
-			_gc_emit(gc, "1:\n");
-			_gc_emit(gc, "\tldd\tA, [X++]\n");
-			_gc_emit(gc, "\tdec\t%s\n", regnames[R_RE]);
-			_gc_emit(gc, "\tbr.ne\t1b\n");
-			_gc_emit(gc, "\tstd\tA, [Y++]\n");
-		}
-		else if ((dst_ptyp == DPOINTER) && (src_ptyp == PPOINTER))
-		{
-			_gc_emit(gc, "1:\n");
-			_gc_emit(gc, "\tldp\tA, [X++]\n");
-			_gc_emit(gc, "\tdec\t%s\n", regnames[R_RE]);
-			_gc_emit(gc, "\tbr.nz\t1b\n");
-			_gc_emit(gc, "\tstd\tA, [Y++]\n");
-		}
-		else if ((dst_ptyp == PPOINTER) && (src_ptyp == DPOINTER))
-		{
-			_gc_emit(gc, "1:\n");
-			_gc_emit(gc, "\tldd\tA, [Y++]\n");
-			_gc_emit(gc, "\tdec\t%s\n", regnames[R_RE]);
-			_gc_emit(gc, "\tbr.nz\t1b\n");
-			_gc_emit(gc, "\tstp\tA, [X++]\n");
-		}
-		else if ((dst_ptyp == PPOINTER) && (src_ptyp == PPOINTER))
-		{
-			_gc_emit(gc, "1:\n");
-			_gc_emit(gc, "\tldp\tA, [X++]\n");
-			_gc_emit(gc, "\tdec\t%s\n", regnames[R_RE]);
-			_gc_emit(gc, "\tswap\tA, X\n");
-			_gc_emit(gc, "\tswap\tA, Y\n");
-			_gc_emit(gc, "\tswap\tA, X\n");
-			_gc_emit_nop(gc);	/* Need 1 cycle before using X in deref */
-			_gc_emit(gc, "\tstp\tA, [X++]\n");
-			_gc_emit(gc, "\tswap\tA, X\n");
-			_gc_emit(gc, "\tswap\tA, Y\n");
-			_gc_emit(gc, "\tswap\tA, X\n");
-			_gc_emit(gc, "\tbr.nz\t1b\n");
-			_gc_emit_nop(gc);	/* Need 1 cycle before using X in deref */
-		}
-
-		/* Restore Y */
-		_gc_emit_mov(gc, R_A, R_RF);
-		_gc_emit_mov(gc, R_Y, R_A);
-
-		return;
-	}
-
-	/* Handle scalar */
 	if (isreg(&node->q1)) {
 		v_reg = node->q1.reg;
 	} else {
@@ -1510,9 +1307,8 @@ gc_func_branch(struct gc_state *gc, struct IC *node)
 		_gc_emit(gc, "\tcc\t%s\n", ecc);
 
 	snprintf(label, sizeof(label)-1, "%s%d", labprefix, node->typf);
-	if (!TINY_PMEM)
-		_gc_emit(gc, "\timm\t$(hi(%s))\n", label);
-	_gc_emit(gc, "\tba%s\t$(lo(%s))\n", cc, label);
+	_gc_emit(gc, "\timm\t$hi(%s)\n", label);
+	_gc_emit(gc, "\tba%s\t$lo(%s)\n", cc, label);
 	_gc_emit_nop(gc);
 }
 
@@ -1525,8 +1321,6 @@ gc_func_label(struct gc_state *gc, struct IC *node)
 static void
 gc_func_call(struct gc_state *gc, struct IC *node)
 {
-	int asz;
-
 	if ((node->q1.flags & (VAR | DREFOBJ)) == VAR &&
 	     node->q1.v->fi && node->q1.v->fi->inline_asm)
 	{
@@ -1567,73 +1361,13 @@ gc_func_call(struct gc_state *gc, struct IC *node)
 		_gc_emit_nop(gc);
 	}
 
-	/* Fixup stack pointer */
-	asz = pushedargsize(node);
-
-	if (asz <= 2) {
-		int i;
-		for (i=0; i<asz; i++)
-			_gc_emit(gc, "\tldd\tA, [Y++]\n");	/* Useless op */
-	} else {
-		_gc_emit_swap(gc, R_A, R_Y);
-		_gc_emit_alu(gc, "add", R_A, R_A, R_I, asz);
-		_gc_emit_swap(gc, R_A, R_Y);
-	}
-	gc->s_argsize -= asz;
+	/* FIXME: fixup stack pointer after the call ?!? */
 }
 
 static void
 gc_func_push(struct gc_state *gc, struct IC *node)
 {
-	long sz = zm2l(node->q2.val.vmax);
-	struct rpair rp;
-	int v_reg;
-
-	/* First handle non-scalar types */
-	if (!ISSCALAR(q1typ(node)))
-	{
-		int ptyp;
-		const char *op;
-
-		/* Load copy length */
-		_gc_emit_const_load(gc, R_RF, sz);
-
-		/* Load addresses for src */
-		_gc_get_addr(gc, &node->q1, &ptyp);
-		_gc_emit_alu(gc, "add", R_A, R_A, R_I, sz-1);
-		_gc_emit_mov(gc, R_X, R_A);
-
-		/* Select load opcode */
-		op = (ptyp == PPOINTER) ? "ldp" : "ldd";
-
-		/* Generate loop */
-		_gc_emit(gc, "1:\n");
-		_gc_emit(gc, "\t%s\tA, [X--]\n", op);
-		_gc_emit(gc, "\tdec\t%s\n", regnames[R_RF]);
-		_gc_emit(gc, "\tbr.ne\t1b\n");
-		_gc_emit(gc, "\tstd\tA, [Y--]\n");
-	}
-
-	/* Handle scalar */
-	if (isreg(&node->q1)) {
-		v_reg = node->q1.reg;
-	} else {
-		v_reg = (sz == 1) ? R_A : R_REP;
-		_gc_load_op(gc, &node->q1, v_reg, q1typ(node));
-	}
-
-	if (reg_pair(v_reg, &rp)) {
-		_gc_emit_mov(gc, R_A, rp.r2);
-		_gc_emit(gc, "\tstd\tA, [Y--]\n");
-		_gc_emit_mov(gc, R_A, rp.r1);
-		_gc_emit(gc, "\tstd\tA, [Y--]\n");
-	} else {
-		_gc_emit_mov(gc, R_A, v_reg);
-		_gc_emit(gc, "\tstd\tA, [Y--]\n");
-	}
-
-	/* Fixup stack */
-	gc->s_argsize += sz;
+	/* FIXME */
 }
 
 static void
@@ -1671,20 +1405,13 @@ gc_func_setreturn(struct gc_state *gc, struct IC *node)
 
 	/* Special case for small constants */
 	if ((node->z.reg == R_A) && isconst(&node->q1)) {
-		long v = const2long(&node->q1, q1typ(node));
-		if (const_is_small(v)) {
-			gc->val_rv = v;
-			return;
-		}
+		gc->val_rv = const2long(&node->q1, q1typ(node));
+		return;
 	}
 
 	/* Load value into register */
-	if (isreg(&node->q1)) {
-		src_reg = node->q1.reg;
-	} else {
-		src_reg = node->z.reg;
-		_gc_load_op(gc, &node->q1, src_reg, q1typ(node));
-	}
+	src_reg = node->z.reg;
+	_gc_load_op(gc, &node->q1, src_reg, q1typ(node));
 
 	/* If the target is R_A, we need to defer */
 	if (node->z.reg == R_A) {
@@ -2180,8 +1907,8 @@ void gen_align(FILE *f, zmax align)
 void gen_var_head(FILE *f, struct Var *v)
 {
 	const char*section_names[] = { /* bit 2: pmem, bit 1: init, bit 0: const */
-		"dmem.bss", NULL, "dmem.data", "dmem.rodata",
-		"pmem.bss", NULL, "pmem.data", "pmem.rodata",
+		"bss", NULL, "data", "rodata",
+		"pmem_bss", NULL, "pmem_data", "pmem_rodata",
 	};
 	int section_type;
 	struct Typ *tv;
@@ -2192,8 +1919,7 @@ void gen_var_head(FILE *f, struct Var *v)
 		tv = tv->next;
 	attr = tv->attr;
 
-	if (isstatic(v->storage_class) ||
-	   (isextern(v->storage_class) && (v->flags & (DEFINED|TENTATIVE))))
+	if (isstatic(v->storage_class) || isextern(v->storage_class))
 	{
 		/* Select section */
 		section_type  = (attr && strstr(attr, STR_PMEM)) ? 4 : 0;
@@ -2203,12 +1929,14 @@ void gen_var_head(FILE *f, struct Var *v)
 		emit(f, "\t.section %s\n", section_names[section_type]);
 
 		/* Symbol name */
-		if (isextern(v->storage_class))
-			emit(f, "\t.global\t%s\n", sym_name(v));
+		if (isstatic(v->storage_class))
+			emit(f, "%s%ld:\n", labprefix, zm2l(v->offset));
+		else
+			emit(f, "%s%s:\n", idprefix, v->identifier);
 
-		emit(f, "%s:\n", sym_name(v));
+		/* FIXME: export global symbols */
 	}
-	else if (!isextern(v->storage_class))
+	else
 	{
 		ierror(0);
 	}

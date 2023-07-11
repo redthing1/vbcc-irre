@@ -6,14 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdarg.h>
-#include <errno.h>
-
-#ifdef _WIN32
-#include <io.h>
-#else
-#include <unistd.h>
-#endif
 
 #ifdef AMIGA
 #pragma amiga-align
@@ -80,10 +72,10 @@ char *vbccenv;
 char empty[]="";
 /*  Namen der einzelnen Phasen  */
 char *ppname=empty,*ccname=empty,*asname=empty,*ldname=empty,*l2name=empty;
-char *scname=empty;
+char *rmname=empty,*scname=empty;
 /*  dasselbe fuer VERBOSE   */
 char *ppv=empty,*ccv=empty,*asv=empty,*ldv=empty,*l2v=empty;
-char *scv=empty;
+char *rmv=empty,*scv=empty;
 
 /*  Linker-Commandfile  */
 char *cf="@%s";
@@ -146,16 +138,6 @@ char *tmpnam(char *p)
   if(!p) p=tmp;
   snprintf(p,NAMEBUF,"%s\\vbcc%04x",env,++c);
   return p;
-}
-#else
-char *local_tmpnam(char *p)
-{
-  static int counter = 0;
-  static char buffer[256];
-  sprintf(buffer,"/tmp/vbcc.%u.%u", getpid(), counter++);
-  if (p)
-	  strcpy(p, buffer);
-  return buffer;
 }
 #endif
 
@@ -223,27 +205,12 @@ do_cmd:
 #define runcmd(c) system(c)
 #endif
 
-void fatal(const char *msg)
-{
-    fputs(msg, stderr);
-    raus(EXIT_FAILURE);
-}
-
-void fatalf(const char *fmt, ...)
-{
-    va_list va;
-    va_start(va, fmt);
-    vfprintf(stderr, fmt, va);
-    va_end(va);
-    raus(EXIT_FAILURE);
-}
-
 static void del_scratch(struct NameList *p)
 {
     while(p){
-        p->obj[strlen(p->obj)-1]='\0';
-        if(flags&VERBOSE) printf("unlinking '%s'\n",p->obj+1);
-        if(unlink(p->obj+1)<0) fatalf("unlink('%s') failed: %s\n",p->obj+1,strerror(errno));
+        sprintf(command,rmname,p->obj);
+        if(flags&VERBOSE) printf("%s\n",command);
+        if(runcmd(command)){printf("%s failed\n",command);raus(EXIT_FAILURE);}
         p=p->next;
     }
 }
@@ -253,9 +220,9 @@ static void add_name(char *obj,struct NameList **first,struct NameList **last)
     struct NameList *new;
     if(flags&VERYVERBOSE) printf("add_name: %s\n",obj);
     if(!(new=malloc(sizeof(struct NameList))))
-        {fatal(nomem);}
+        {printf(nomem);raus(EXIT_FAILURE);}
     if(!(new->obj=malloc(strlen(obj)+1)))
-        {free((void *)new);fatal(nomem);}
+        {free((void *)new);printf(nomem);raus(EXIT_FAILURE);}
     if(first==&first_obj) linklen+=strlen(obj)+1;
     strcpy(new->obj,obj);
     new->next=0;
@@ -273,7 +240,7 @@ static int read_config(const char *cfg_name)
     FILE *file=0;
     for(i=0;i<sizeof(search_dirs)/sizeof(search_dirs[0]);i++){
       name=malloc(strlen(search_dirs[i])+strlen(cfg_name)+1);
-      if(!name) {fatal(nomem);}
+      if(!name) {printf(nomem);raus(EXIT_FAILURE);}
       strcpy(name,search_dirs[i]);
       strcat(name,cfg_name);
       file=fopen(name,"r");
@@ -283,7 +250,7 @@ static int read_config(const char *cfg_name)
     if(!file){
       if(p=vbccenv){
         name=malloc(strlen(p)+strlen(cfg_name)+20);
-        if(!name){fatal(nomem);}
+        if(!name){printf(nomem);raus(EXIT_FAILURE);}
         strcpy(name,p);
 #if defined(_WIN32)||defined(MSDOS)||defined(ATARI)
         strcat(name,"\\config\\");
@@ -299,12 +266,12 @@ static int read_config(const char *cfg_name)
         free(name);
       }
     }
-    if(!file) {fatal("No config file!");}
+    if(!file) {puts("No config file!");raus(EXIT_FAILURE);}
     if(fseek(file,0,SEEK_END)) return 0;
     size=ftell(file);
     if(fseek(file,0,SEEK_SET)) return 0;
     config=malloc(size+1);
-    if(!config){fatal(nomem);}
+    if(!config){printf(nomem);raus(EXIT_FAILURE);}
     size=fread(config,1,size,file);
     fclose(file);
     count=0;p=config;
@@ -424,6 +391,13 @@ int main(int argc,char *argv[])
     for(i=1;i<argc+count;i++){
         if(i<argc) parm=argv[i]; else parm=confp[i-argc];
 /*        printf("Parameter %d=%s\n",i,parm);*/
+	if(!strncmp(parm,"-rmcfg-",7)){
+	  int j,len=strlen(parm);
+	  for(j=0;j<count;j++)
+	    if(!strncmp(confp[j],parm+6,len-6)) confp[j][0]=0;
+	  parm[0]=0;
+	  continue;
+	}
         if(!strncmp(parm,"-ldnodb=",8)){nodb=parm+8;*parm=0;}
         if(!strncmp(parm,"-ldstatic=",10)){staticflag=parm+10;*parm=0;}
         if(!strcmp(parm,"-g")) db=1;
@@ -435,11 +409,13 @@ int main(int argc,char *argv[])
         if(!strncmp(parm,"-as=",4)){asname=parm+4;*parm=0;}
         if(!strncmp(parm,"-ld=",4)){ldname=parm+4;*parm=0;}
         if(!strncmp(parm,"-l2=",4)){l2name=parm+4;*parm=0;}
+        if(!strncmp(parm,"-rm=",4)){rmname=parm+4;*parm=0;}
         if(!strncmp(parm,"-ppv=",5)){ppv=parm+5;*parm=0;}
         if(!strncmp(parm,"-ccv=",5)){ccv=parm+5;*parm=0;}
         if(!strncmp(parm,"-asv=",5)){asv=parm+5;*parm=0;}
         if(!strncmp(parm,"-ldv=",5)){ldv=parm+5;*parm=0;}
         if(!strncmp(parm,"-l2v=",5)){l2v=parm+5;*parm=0;}
+        if(!strncmp(parm,"-rmv=",5)){rmv=parm+5;*parm=0;}
         if(!strncmp(parm,"-cf=",4)){cf=parm+4;*parm=0;}
         if(!strncmp(parm,"-isc=",5)){scname=parm+5;*parm=0;}
         if(!strncmp(parm,"-iscv=",6)){scv=parm+6;*parm=0;}
@@ -534,16 +510,16 @@ int main(int argc,char *argv[])
     if(scname==empty) flags&=~SCHEDULER;
     if(flags&VERYVERBOSE){
       ppname=ppv;ccname=ccv;asname=asv;ldname=ldv;
-      l2name=l2v;scname=scv;
+      rmname=rmv;l2name=l2v;scname=scv;
     }
     if(flags&NOSTDLIB){ldname=l2name;}
     /*  Nummer sicher...    */
     len+=strlen(ppname)+strlen(ccname)+strlen(asname)+
-         strlen(scname)+strlen(userlibs)+NAMEBUF+100;
-    if(!(command=malloc(len))){fatal(nomem);}
-    if(!(oldfile=malloc(len))){fatal(nomem);}
-    if(!(options=malloc(len))){fatal(nomem);}
-    if(!(ppopts=malloc(len))){fatal(nomem);}
+         strlen(rmname)+strlen(scname)+strlen(userlibs)+NAMEBUF+100;
+    if(!(command=malloc(len))){printf(nomem);raus(EXIT_FAILURE);}
+    if(!(oldfile=malloc(len))){printf(nomem);raus(EXIT_FAILURE);}
+    if(!(options=malloc(len))){printf(nomem);raus(EXIT_FAILURE);}
+    if(!(ppopts=malloc(len))){printf(nomem);raus(EXIT_FAILURE);}
     *options=0;*ppopts=0;
     for(i=1;i<argc+count;i++){
         if(i<argc) parm=argv[i]; else parm=confp[i-argc];
@@ -601,12 +577,13 @@ int main(int argc,char *argv[])
             if(flags&VERYVERBOSE) printf("File %s=%d\n",file,t);
             if(!cmname&&(flags&CROSSMODULE)&&t<=CCSRC){
                 cmname=malloc(NAMEBUF);
-                if(!cmname){puts(nomem);exit(EXIT_FAILURE);}
+                if(!cmname){printf(nomem);exit(EXIT_FAILURE);}
                 if(tfl==OBJ){
                     strcpy(cmname,file);
                 }else{
                     cmname[0]='\"';
-                    local_tmpnam(cmname+1);
+                    tmpnam(cmname+1);
+		    strcat(cmname,".");
                 }
             }
             for(j=t;j<tfl;j++){
@@ -620,7 +597,8 @@ int main(int argc,char *argv[])
                 }else{
                     if(j==t&&j!=tfl-1&&!(flags&(NOTMPFILE|KEEPSCRATCH))){
                         file=namebuf2;
-                        local_tmpnam(file+1);
+                        tmpnam(file+1);
+			strcat(file,".");
                     }
                     if(j==tfl-1||(flags&WPO)) file=namebuf;
                 }
@@ -656,9 +634,9 @@ int main(int argc,char *argv[])
 #ifdef USECMDFILE
                         if(!cmdfile){
                           char *s;
-                          s=local_tmpnam(0);
+                          s=tmpnam(0);
                           cmfiles=malloc(strlen(s)+16);
-                          if(!cmfiles){puts(nomem);exit(EXIT_FAILURE);}
+                          if(!cmfiles){printf(nomem);exit(EXIT_FAILURE);}
                           sprintf(cmfiles,"-cmd= \"%s\"",s);
                           cmdfile=fopen(s,"w");
                           if(!cmdfile){printf("Could not open <%s>!\n",s);exit(EXIT_FAILURE);}
@@ -669,17 +647,17 @@ int main(int argc,char *argv[])
 #else
                         if(!cmfiles){
                           cmfiles=malloc(strlen(oldfile)+3);
-                          if(!cmfiles){puts(nomem);exit(EXIT_FAILURE);}
+                          if(!cmfiles){printf(nomem);exit(EXIT_FAILURE);}
                           strcpy(cmfiles,oldfile);
                         }else{
                           cmfiles=realloc(cmfiles,strlen(cmfiles)+strlen(oldfile)+3);
-                          if(!cmfiles){puts(nomem);exit(EXIT_FAILURE);}
+                          if(!cmfiles){printf(nomem);exit(EXIT_FAILURE);}
                           strcat(cmfiles," ");strcat(cmfiles,oldfile);
                         }
 #endif
                         if(!cmoutput){
                           cmoutput=malloc(strlen(file)+1);
-                          if(!cmoutput){puts(nomem);exit(EXIT_FAILURE);}
+                          if(!cmoutput){printf(nomem);exit(EXIT_FAILURE);}
                           strcpy(cmoutput,file);
                         }
                         break;
@@ -727,7 +705,7 @@ int main(int argc,char *argv[])
                     }
                 }else
 #endif
-                if(runcmd(command)){fatalf("%s failed: %s\n",command,strerror(errno));}
+                if(runcmd(command)){printf("%s failed\n",command);raus(EXIT_FAILURE);}
             }
 #ifdef AMIGA
         }while(pm&&!MatchNext(ap));
@@ -742,18 +720,21 @@ int main(int argc,char *argv[])
         FILE *objfile=0;
         char *tfname;
         objects=malloc(linklen);
-        if(!objects){fatal(nomem);}
+        if(!objects){printf(nomem);raus(EXIT_FAILURE);}
         linklen+=strlen(ldname)+strlen(destname)+strlen(userlibs)+10;
 #ifdef ATARI
         if(vbccenv) linklen+=strlen(vbccenv)+5;
 #endif
         if(flags&VERYVERBOSE) printf("linklen=%d\n",linklen);
-        if(!(linkcmd=malloc(linklen))){fatal(nomem);}
+        if(!(linkcmd=malloc(linklen))){printf(nomem);raus(EXIT_FAILURE);}
         p=first_obj;
         if(linklen>=MAXCLEN){
-            tfname=local_tmpnam(0);
+            tfname=tmpnam(0);
             sprintf(objects,cf,tfname);
-            if(!(objfile=fopen(tfname,"w"))) fatalf("Could not open <%s>!\n",tfname);
+            if(!(objfile=fopen(tfname,"w"))){
+                printf("Could not open <%s>!\n",tfname);
+                raus(EXIT_FAILURE);
+            }
         }else *objects=0;
         while(p){
             if(p->obj){
@@ -771,7 +752,7 @@ int main(int argc,char *argv[])
             sprintf(linkcmd,ldname,objects,userlibs,destname);
             if(flags&VERBOSE) printf("%s\n",linkcmd);
             /*  hier wird objfile bei Fehler nicht geloescht    */
-            if(runcmd(linkcmd)) fatalf("%s failed: %s\n",linkcmd,strerror(errno));
+            if(runcmd(linkcmd)){printf("%s failed\n",linkcmd);raus(EXIT_FAILURE);}
 #ifdef AMIGA
             if(flags&VERBOSE){
                 BPTR l;

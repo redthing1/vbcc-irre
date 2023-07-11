@@ -1,4 +1,4 @@
-/*  $VER: vbcc (declaration.c) $Revision: 1.75 $    */
+/*  $VER: vbcc (declaration.c) $Revision: 1.90 $    */
 
 #include <string.h>
 #include <stdio.h>
@@ -63,6 +63,17 @@ void init_sl(struct_list *sl);
 extern np gen_libcall(char *,np,type *,np,type *);
 extern int float_used;
 extern void optimize(long,Var *);
+
+extern type uct;
+
+void needs(char *s)
+{
+  Var *v;
+  if(!(v=find_ext_var(s))||!strcmp(v->identifier,s)){
+    Var *needs=add_var(s,clone_typ(&uct),EXTERN,0);
+    needs->flags|=(USEDASSOURCE|REFERENCED|NEEDS);
+  }		
+}
 
 static void clear_main_ret(void)
 {
@@ -369,6 +380,7 @@ type *declaration_specifiers(void)
 /* removed */
 #endif
 #ifdef HAVE_ECPP
+/* removed */
 /* removed */
 /* removed */
 /* removed */
@@ -865,6 +877,7 @@ type *declaration_specifiers(void)
         killsp();
         if(ctok->type==RPAR) next_token(); else error(59);
         killsp();
+	notdone=1;
       }else if(/*!(c_flags[7]&USEDFLAG)&&*/!strcmp("__attr",ctok->name)){
         char *d;
         next_token();killsp(); 
@@ -1303,6 +1316,7 @@ type *direct_declarator(type *a)
           (*sl)[fsd->count].styp=new_typ();
           (*sl)[fsd->count].styp->flags=VOID;
           (*sl)[fsd->count].styp->next=0;
+          (*sl)[fsd->count].reg=0;
           (*sl)[fsd->count].identifier=empty;
 #ifdef HAVE_ECPP
 /* removed */
@@ -2024,6 +2038,8 @@ Var *add_var(char *identifier, type *t, int storage_class,const_list *clist)
   new->dline=0;
   new->description=0;
   new->tunit=last_tunit;
+  new->inline_copy=0;
+  new->index=-1;
 #ifdef HAVE_TARGET_ATTRIBUTES
   new->tattr=0;
 #endif
@@ -2314,7 +2330,7 @@ void init_local_compound(Var *v)
     }else{
       /*  Array etc.  */
       Var *nv;
-      if(!use_only_dyn_init(szof(v->vtyp),init_dyn_sz,init_const_sz,init_dyn_cnt,init_const_cnt)){
+      if(!ISSCALAR(v->vtyp->flags)&&!use_only_dyn_init(szof(v->vtyp),init_dyn_sz,init_const_sz,init_dyn_cnt,init_const_cnt)){
 	nv=add_var(empty,clone_typ(v->vtyp),STATIC,v->clist);
 	nv->flags|=DEFINED;
 	nv->dfilename=filename;
@@ -2488,10 +2504,12 @@ void var_declaration(void)
         }
 #endif
         if(vattr){
-	  add_attr(&v->vattr,vattr);
+	  if(!v->vattr||!strstr(v->vattr,vattr)){
+	    error(370,v->identifier,vattr,v->vattr?v->vattr:empty);
+	    add_attr(&v->vattr,vattr);
+	  }
           if(ISFUNC(v->vtyp->flags)) fi_from_attr(v);
         }
-
         if(!isfunc){
           if(!ISARRAY(t->flags)||!zmeqto(t->size,l2zm(0L))){
             free(v->vtyp);
@@ -2504,12 +2522,21 @@ void var_declaration(void)
           }
         }
       }
+#ifdef HAVE_TARGET_VARHOOK_POST
+      add_attr_haddecl=v;
+      add_var_hook_post(v);
+      add_attr_haddecl=0;
+#endif
+      
     }else{
       had_decl=0;
 #ifdef HAVE_MISRA
 /* removed */
 #endif
       if(isfunc&&ctok->type!=COMMA&&ctok->type!=SEMIC&&ctok->type!=RPAR&&ctok->type!=ASGN&&nesting>0) nesting--;
+      if(!zumeqto(mask,ul2zum(0UL))){
+	sprintf(vident+strlen(vident),".%lu",zum2ul(mask));
+      }
       v=add_var(vident,t,storage_class,0);
 #ifdef HAVE_ECPP
 /* removed */
@@ -2525,14 +2552,6 @@ void var_declaration(void)
       v->reg=hard_reg;
       if(vattr)
 	add_attr(&v->vattr,vattr);
-      if(!zumeqto(mask,ul2zum(0UL))){
-	char *new=mymalloc(strlen(v->identifier)+16);
-	strcpy(new,v->identifier);
-	strcat(new,".");
-	sprintf(new+strlen(new),"%lu",zum2ul(mask));
-	v->identifier=add_identifier(new,strlen(new));
-	free(new);
-      }
       if(ISFUNC(v->vtyp->flags))
         fi_from_attr(v);
 #ifdef HAVE_TARGET_ATTRIBUTES
@@ -2781,6 +2800,7 @@ void var_declaration(void)
       sl[0].styp=new_typ();
       sl[0].styp->flags=VOID;
       sl[0].styp->next=0;
+      sl[0].reg=0;
       nesting--;
       add_sl(t->exact,&sl);
       nesting++;
@@ -3094,6 +3114,7 @@ int compare_sd(struct_declaration *a,struct_declaration *b)
   if(a->count!=b->count) return(0);
   for(i=0;i<a->count;i++){
     if((*a->sl)[i].styp&&(*b->sl)[i].styp&&!compatible_types((*a->sl)[i].styp,(*b->sl)[i].styp,NU)) return(0);
+    if((*a->sl)[i].reg!=(*b->sl)[i].reg) {error(368);return 0;}
 #ifdef HAVE_MISRA
 /* removed */
 /* removed */
@@ -3119,7 +3140,7 @@ void gen_clist(FILE *,type *,const_list *);
 void gen_vars(Var *v)
 /*  Generiert Variablen.                                    */
 {
-  int mode,al;Var *p;
+  int mode,al,first_pass=1;Var *p;
   if(errors!=0||(c_flags[5]&USEDFLAG)) return;
   if(optsize)
     al=zm2l(maxalign);
@@ -3129,6 +3150,7 @@ void gen_vars(Var *v)
     for(mode=0;mode<3;mode++){
       int i,flag;
       for(p=v;p;p=p->next){
+	if(p->flags&NEEDS) continue;
         if(optsize&&zm2l(falign(p->vtyp))!=al)
           continue;
         if(cross_module&&!(p->flags&REFERENCED)) continue;
@@ -3136,7 +3158,7 @@ void gen_vars(Var *v)
         if(p->storage_class==STATIC||p->storage_class==EXTERN){
           if(!(p->flags&GENERATED)){
             if(p->storage_class==EXTERN&&!(p->flags&(USEDASSOURCE|USEDASDEST))&&!(p->flags&(TENTATIVE|DEFINED))) continue;
-	if(p->storage_class==STATIC&&p->nesting>0&&!(p->flags&(USEDASSOURCE|USEDASDEST))) continue;
+	    if(p->storage_class==STATIC&&p->nesting>0&&!(p->flags&(USEDASSOURCE|USEDASDEST))) continue;
             /*  erst konstante initialisierte Daten */
             if(mode==0){
               if(!p->clist) continue;
@@ -3153,17 +3175,29 @@ void gen_vars(Var *v)
             /*  dann initiolisierte */
             if(mode==1&&!p->clist) continue;
             /*  und dann der Rest   */
-            if(mode==2&&p->clist) continue;
+         
+	    if(mode==2&&p->clist) continue;
+   
             if(!(p->flags&(TENTATIVE|DEFINED))){
-              if(!((p->vtyp->flags&NQ)==FUNKT)||!p->fi||!p->fi->inline_asm)
+              if(!((p->vtyp->flags&NQ)==FUNKT)||!p->fi||!p->fi->inline_asm){
+		if(mask_opt){
+		  if((p->flags&PRINTFLIKE)&&!strstr(p->identifier,".")) needs("vfprintf");
+		  if((p->flags&SCANFLIKE)&&!strstr(p->identifier,".")) needs("vfscanf");
+		}
                 gen_var_head(out,p);
+	      }
               if(p->storage_class==STATIC&&(!p->fi||!p->fi->inline_asm)) error(127,p->identifier);
               continue;
             }else{
               /*gen_align(out,falign(p->vtyp));*/
             }
-            if(!((p->vtyp->flags&NQ)==FUNKT)||!p->fi||!p->fi->inline_asm)
+            if(!((p->vtyp->flags&NQ)==FUNKT)||!p->fi||!p->fi->inline_asm){
+	      if(mask_opt){
+		if((p->flags&PRINTFLIKE)&&!strstr(p->identifier,".")) needs("vfprintf");
+		if((p->flags&SCANFLIKE)&&!strstr(p->identifier,".")) needs("vfscanf");
+	      }
               gen_var_head(out,p);
+	    }
             if(!p->clist){
               if(type_uncomplete(p->vtyp)) error(202,p->identifier);
               gen_ds(out,szof(p->vtyp),p->vtyp);
@@ -3183,7 +3217,12 @@ void gen_vars(Var *v)
           }
         }
       }
+      first_pass=0;
     }
+  }
+  if(mask_opt){
+    for(p=v;p;p=p->next)
+      if(p->flags&NEEDS) gen_var_head(out,p);
   }
 }
 
@@ -3542,6 +3581,7 @@ Var *declare_builtin(char *name,int ztyp,int q1typ,int q1reg,int q2typ,int q2reg
     }
     (*sd->sl)[args-1].styp=new_typ();
     (*sd->sl)[args-1].styp->flags=VOID;
+    (*sd->sl)[args-1].reg=0;
     t=new_typ();
     t->flags=FUNKT;
     t->exact=add_sd(sd,FUNKT);

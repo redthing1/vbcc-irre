@@ -1,4 +1,4 @@
-/*  $VER: vbcc (statements.c)  $Revision: 1.26 $  */
+/*  $VER: vbcc (statements.c)  $Revision: 1.30 $  */
 
 #include "vbcc_cpp.h"
 #include "vbc.h"
@@ -220,7 +220,8 @@ void if_statement(void)
 /* removed */
 #endif
     ltrue=++label;lfalse=++label;
-    if(type_expression(tree,0)){
+    simple_alg_opt(tree);
+    if(type_expression(tree,andcomp(tree,0))){
       tree=makepointer(tree);
       if(!ISARITH(tree->ntyp->flags)&&!ISPOINTER(tree->ntyp->flags)){
 	error(136);
@@ -579,7 +580,8 @@ void while_statement(void)
   tree=expression();
   cexpr=0;
   if(tree){
-    if(tvalid=type_expression(tree,0)){
+    simple_alg_opt(tree);
+    if(tvalid=type_expression(tree,andcomp(tree,0))){
 #ifdef HAVE_MISRA
 /* removed */
 #endif
@@ -755,7 +757,8 @@ void for_statement(void)
     }
   }
   if(tree2){
-    if(tvalid=type_expression(tree2,0)){
+    simple_alg_opt(tree2);
+    if(tvalid=type_expression(tree2,andcomp(tree2,0))){
 #ifdef HAVE_MISRA
 /* removed */
 #endif
@@ -931,7 +934,8 @@ void do_statement(void)
   if(ctok->type==LPAR) {next_token();killsp();} else error(151);
   tree=expression();
   if(tree){
-    if(type_expression(tree,0)){
+    simple_alg_opt(tree);
+    if(type_expression(tree,andcomp(tree,0))){
 #ifdef HAVE_MISRA
 /* removed */
 #endif
@@ -1015,7 +1019,7 @@ void continue_statement(void)
 /* removed */
 #endif
   if(cont_label==0){error(145);return;}
-  if(block_vla[nesting]) freevl();
+  //if(block_vla[nesting]) freevl();
   new=new_IC();
   new->code=BRA;
   new->typf=cont_label;
@@ -1033,7 +1037,7 @@ void break_statement(void)
 /* removed */
 #endif
   if(break_label==0){error(146);return;}
-  if(block_vla[nesting]) freevl();
+  //if(block_vla[nesting]) freevl();
   new=new_IC();
   new->code=BRA;
   new->typf=break_label;

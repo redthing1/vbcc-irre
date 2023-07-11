@@ -168,6 +168,8 @@ void am_conversions(struct IC *p)
 
 // Look for 832-specific optimizations
 
+extern zmax sizetab[MAX_TYPE + 1];
+
 void am_simplify(struct IC *p)
 {
 	int c;
@@ -300,7 +302,18 @@ void am_simplify(struct IC *p)
 							p2->q1=p->q1;
 						}
 					}
-				}				
+				} else {
+					if (AM_DEBUG)
+						printf("Checking conversion from %d to %d, %d to %d\n",q1typ(p),ztyp(p),p->q1.reg,p->z.reg);
+					/* Eliminate conversions to wider types within a single register if the value is unsigned */
+					if((p->z.flags&(REG|DREFOBJ))==REG && ((p->q1.flags&(REG|DREFOBJ))==REG) && p->z.reg==p->q1.reg) {
+						if((q1typ(p)&UNSIGNED) && (sizetab[q1typ(p) & NQ] < sizetab[ztyp(p) & NQ])) {
+							if (AM_DEBUG)
+								printf("Eliminating unnecessary conversion\n");
+							p->code=NOP;
+						}
+					}
+				}
 //				printic(stdout,p);
 				break;
 
@@ -394,7 +407,6 @@ void am_simplify(struct IC *p)
 	}
 }
 
-
 void am_disposable(struct IC *p, struct obj *o)
 {
 	struct IC *p2;
@@ -404,7 +416,7 @@ void am_disposable(struct IC *p, struct obj *o)
 		if(o!=&p->z)
 		{
 			// We're writing to the same register as we're reading from - not disposable!
-			if((p->z.flags&&REG) && p->z.reg==o->reg)
+			if((p->z.flags&REG) && p->z.reg==o->reg)
 				return;
 		}
 		p2 = p->next;
@@ -416,11 +428,11 @@ void am_disposable(struct IC *p, struct obj *o)
 				o->am->disposable = 1;
 				return;
 			}
-			if ((p2->q1.flags & (REG | DREFOBJ)
+			if (((p2->q1.flags & REG)
 			     && p2->q1.reg == o->reg)
-			    || (p2->q2.flags & (REG | DREFOBJ)
+			    || ((p2->q2.flags & REG)
 				&& p2->q2.reg == o->reg)
-			    || (p2->z.flags & (REG | DREFOBJ)
+			    || ((p2->z.flags & REG)
 				&& p2->z.reg == o->reg)) {
 				//Found another instruction referencing reg - not disposable.
 				return;
@@ -445,22 +457,62 @@ void am_disposable(struct IC *p, struct obj *o)
 	}
 }
 
+struct obj *throwaway_reg(struct IC *p,int reg)
+{
+	struct obj *result=0;
+	if (AM_DEBUG)
+		printf("\tChecking IC for reg %s\n", regnames[reg]);
+	if(p) {
+		if((p->q1.flags&REG) && p->q1.reg==reg) {
+			am_disposable(p,&p->q1);
+			if(p->q1.am && p->q1.am->disposable)
+				result=&p->q1;
+		} else if((p->z.flags&REG) && p->z.reg==reg) {
+			am_disposable(p,&p->z);
+			if(p->z.am && p->z.am->disposable)
+				result=&p->z;
+		}
+	}
+	if (AM_DEBUG)
+		printf("\tReturning %x\n", result);
+	return(result);
+}
+
+
 struct IC *am_find_adjustment(struct IC *p, int reg)
 {
 	struct IC *p2 = p->next;
 	// FIXME - limit how many steps we check...
 	/* Look for a post-increment */
 	while (p2) {
+//		printf("\t\tChecking code %d\n",p2->code);
 		if (p2->code == ADDI2P) {
-			if (AM_DEBUG)
-				printf("\tFound Addi2p to register %s \n", regnames[p2->z.reg]);
+//			if (AM_DEBUG)
+//				printf("\tFound Addi2p to register %s \n", regnames[p2->z.reg]);
 			if ((p2->q2.flags & KONST) && (p2->z.flags & REG)) {
 				if (p2->z.reg == reg) {
 					if (AM_DEBUG)
 						printf("\t\tAdjusting the correct register - match found\n");
 					break;
-				} else if (AM_DEBUG)
-					printf("\t\tWrong register - keep looking\n");
+				} else {
+					if(p2 && p2->q1.reg == reg) {	
+						if (AM_DEBUG)
+							printf("\t\tWriting to different reg - is source reg disposable?  ");
+						am_disposable(p2, &p2->q1);
+						if(p2->q1.am && p2->q1.am->disposable){
+							if (AM_DEBUG)
+								printf("yes\n");
+							break;
+						} else {
+							if (AM_DEBUG)
+								printf("no - bailing out\n");
+							p2=0;
+						}
+					} else {
+						if (AM_DEBUG)
+							printf("\t\tWrong register - keep looking\n");
+					}
+				}
 			} else {
 				if (AM_DEBUG)
 					printf("\t\tnot a constant, however - bailing out.\n");
@@ -474,8 +526,15 @@ struct IC *am_find_adjustment(struct IC *p, int reg)
 			if (AM_DEBUG)
 				printf("\t\tFound another instruction referencing reg - bailing out\n");
 			p2 = 0;
+		} else if (p2->code>=BEQ && p2->code<=BRA) {
+			if (AM_DEBUG)
+				printf("\t\tFound a branch instruction - bailing out\n");
+			p2 = 0;
+		} else if (p2->code>=LABEL) {
+			if (AM_DEBUG)
+				printf("\t\tFound a label - bailing out\n");
+			p2 = 0;
 		}
-		// FIXME - check for control flow changes
 		if (p2)
 			p2 = p2->next;
 	}
@@ -494,8 +553,21 @@ struct IC *am_find_adjustment(struct IC *p, int reg)
 					if (AM_DEBUG)
 						printf("\t\tAdjusting the correct register - match found\n");
 					break;
-				} else if (AM_DEBUG)
-					printf("\t\tWrong register - keep looking\n");
+				} else {
+					if(p2 && p2->q1.reg == reg) {	
+						if (AM_DEBUG)
+							printf("\t\tWriting to different reg - is source reg disposable?  ");
+						am_disposable(p2, &p2->q1);
+						if(p2->q1.am && p2->q1.am->disposable){
+							if (AM_DEBUG)
+								printf("yes\n");
+							break;
+						} else {
+							if (AM_DEBUG)
+								printf("no - bailing out\n");
+						}
+					}
+				}
 			} else {
 				if (AM_DEBUG)
 					printf("\t\tnot a constant, however - bailing out.\n");
@@ -538,7 +610,7 @@ int am_get_adjvalue(struct IC *p, int type, int target)
 	case LONG:
 	case POINTER:		// We support post-increment and predecrement for INTs/LONGs/PTRs
 //                      if(target && offset!=-4)        // We only support predec for writing.
-		if (target && ((offset != -4) || (offset != 4)))	// We now support predec and postinc for writing.
+		if (target && ((offset != -4) && (offset != 4)))	// We now support predec and postinc for writing.
 			offset = 0;
 		if (!target && offset != 4)	// We only support postinc for reading
 			offset = 0;
@@ -560,6 +632,7 @@ void am_prepost_incdec(struct IC *p, struct obj *o)
 {
 	struct IC *p2 = 0;
 	int type;
+
 	if (o->flags & (REG) && (o->flags & DREFOBJ)) {
 		if (AM_DEBUG)
 			printf("Dereferencing register %s - searching for adjustments\n", regnames[o->reg]);
@@ -567,11 +640,16 @@ void am_prepost_incdec(struct IC *p, struct obj *o)
 
 		if (p2)		// Did we find a candidate for postinc / predec?
 		{
+			int adj;
 			switch (p->code) {
 			case CONVERT:
+				// Are we considering q1 or z?
+				if(o==&p->z)
+					type = p->typf;
+				else
+					type = p->typf2;
 				if (AM_DEBUG)
-					printf("\tConvert operation - type is %d\n", p->typf2);
-				type = p->typf2;
+					printf("\tConvert operation - type is %d\n", type);
 				break;
 			default:
 				if (AM_DEBUG)
@@ -579,9 +657,33 @@ void am_prepost_incdec(struct IC *p, struct obj *o)
 				type = p->typf;
 				break;
 			}
-			int adj = am_get_adjvalue(p2, type, o == &p->z);	// Validate the adjustment
+			adj = am_get_adjvalue(p2, type, o == &p->z);	// Validate the adjustment
 			if (adj) {
-				p2->code = NOP;	// Nullify the manual adjustment if we can do it as an opcode side-effect
+				obj *tempob;
+				switch(p2->code)
+				{
+					case ADDI2P:
+					case SUBIFP:
+						// Are the source and destination regs the same?
+						if(p2->q1.reg==p2->z.reg) {
+							p2->code=NOP; // Nullify the manual adjustment if we can do it as an opcode side-effect
+							break;
+						}
+
+						// Check next IC to see if it's disposable, and referencing the same register:
+						if(tempob=throwaway_reg(p2->next,p2->z.reg)) {
+							if (AM_DEBUG)
+								printf("\tChangingnext IC from reg %s to reg %s\n", regnames[tempob->reg], regnames[p2->q1.reg]);
+							tempob->reg=p2->q1.reg; // Adjust the register referenced in the next IC.
+							p2->code=NOP; // Nullify the adjustment since we've aliased the register
+						}
+						else
+							p2->code=ASSIGN; // Otherwise replace it with an assign if the registers aren't equal.
+						break;
+					default:
+						p2->code = NOP;	// Nullify the manual adjustment if we can do it as an opcode side-effect
+						break;
+				}
 				am_alloc(o);
 				o->am->type = (adj > 0) ? AM_POSTINC : AM_PREDEC;
 			}
@@ -629,6 +731,7 @@ static void find_addressingmodes(struct IC *p)
 		} else
 			am_prepost_incdec(p, &p->z);
 //		printic(stdout,p);
+
 		am_disposable(p, &p->q1);
 		am_disposable(p, &p->q2);
 		am_disposable(p, &p->z);

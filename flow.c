@@ -1,4 +1,4 @@
-/*  $VER: vbcc (flow.c) $Revision: 1.9 $    */
+/*  $VER: vbcc (flow.c) $Revision: 1.13 $    */
 /*  Generierung des FLussgraphs und Optimierungen des Kontrollflusses   */
 
 #include "opt.h"
@@ -86,6 +86,10 @@ flowgraph *construct_flowgraph(void)
       firstl=lastlabel;
       lcnt=label-firstl;
     }
+    return_label=0;
+    if(last_ic&&last_ic->code==LABEL) return_label=last_ic->typf;
+    if(last_ic&&last_ic->code==SETRETURN&&last_ic->prev&&last_ic->prev->code==LABEL) return_label=last_ic->prev->typf;
+
     iseq=mymalloc(lcnt*sizeof(int));
     used=mymalloc(lcnt*sizeof(int));
     lg=mymalloc(lcnt*sizeof(flowgraph *));
@@ -309,6 +313,7 @@ void print_flowgraph(flowgraph *g)
         }
         g=g->normalout;
     }
+    printf("return_label=%d\n",return_label);
 }
 void free_flowgraph(flowgraph *g)
 /*  Gibt Flussgraph frei    */
@@ -509,6 +514,8 @@ flowgraph *jump_optimization(void)
                         if(lp->graph&&lp->graph!=g&&(lp->graph->branchout==a||!lp->graph->end||lp->graph->end->code!=BRA)) i=1;
                     for(lp=b->in;lp;lp=lp->next)
                         if(lp->graph&&lp->graph!=g&&(lp->graph->branchout==b||!lp->graph->end||lp->graph->end->code!=BRA)) i=1;
+		    if(as->code==CALL&&as->next&&(as->next->code==GETRETURN||as->code==NOP)) i=1;
+		    if(bs->code==CALL&&bs->next&&(bs->next->code==GETRETURN||bs->code==NOP)) i=1;
                     if(!i){
                         if(!(tp=g->end->prev)) ierror(0);
                         if(tp->code!=TEST&&tp->code!=COMPARE)

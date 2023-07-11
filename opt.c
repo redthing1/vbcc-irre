@@ -1,4 +1,4 @@
-/*  $VER: vbcc (opt.c) $Revision: 1.31 $    */
+/*  $VER: vbcc (opt.c) $Revision: 1.52 $    */
 /*  allgemeine Routinen fuer den Optimizer und Steuerung der einzelnen  */
 /*  Laeufe                                                              */
 
@@ -13,6 +13,7 @@ static char FILE_[]=__FILE__;
 int have_alias;
 
 int static_cse=1,dref_cse=1;
+int no_eff_ics,early_eff_ics;
 
 #ifdef ALEX_REG
 extern flowgraph *pFg;
@@ -105,7 +106,7 @@ static int insert_libcalls(flowgraph *fg)
       int c=p->code,end=0;
       char *libname;
       next=p->next;
-      if((c>=OR&&c<=XOR)||(c>=LSHIFT&&c<=KOMPLEMENT)||c==COMPARE||c==CONVERT||c==MINUS||c==TEST){
+      if((c>=OR&&c<=AND)||(c>=LSHIFT&&c<=KOMPLEMENT)||c==COMPARE||c==CONVERT||c==MINUS||c==TEST){
 	if(libname=use_libcall(c,p->typf,p->typf2)){
 	  IC *merk_first,*merk_last;
 	  static node n1,n2;
@@ -183,13 +184,17 @@ static int insert_libcalls(flowgraph *fg)
 	  }else{
 	    type *t=new_typ();
 	    t->flags=LIBCALL_CMPTYPE;
-	    p->code=TEST;
+	    p->code=COMPARE;
+	    p->q2.flags=KONST;
+	    gval.vmax=Z0;
+	    eval_const(&gval,MAXINT);
+	    insert_const(&p->q2.val,LIBCALL_CMPTYPE);
 	    p->typf=LIBCALL_CMPTYPE;
 	    p->q1.flags=VAR;
 	    p->q1.v=add_tmp_var(t);
 	    p->q1.val.vmax=l2zm(0L);
 	    p->prev->z=p->q1;
-	    p->q2.flags=p->z.flags=0;
+	    p->z.flags=0;
 	  }
 	}
       }
@@ -377,6 +382,7 @@ void calc_finfo(Var *v,int flags)
 void used_clist(type *t,const_list *cl)
 {
   int i;zmax l;
+
   if(ISARRAY(t->flags)){
     for(l=l2zm(0L);!zmleq(t->size,l)&&cl;l=zmadd(l,l2zm(1L)),cl=cl->next){
       if(!cl->other){ierror(0);return;}
@@ -384,18 +390,22 @@ void used_clist(type *t,const_list *cl)
     }
     return;
   }
-  if(ISUNION(t->flags)){
-    used_clist((*t->exact->sl)[0].styp,cl);
+  if(ISUNION(t->flags)&&!cl->tree){
+    used_clist((*t->exact->sl)[zm2l(cl->idx)].styp,cl->other);
     return;
   }
   if(ISSTRUCT(t->flags)){
     type *st;
-    for(i=0;i<t->exact->count&&cl;i++){
-      st=(*t->exact->sl)[i].styp;
-      if(!(*t->exact->sl)[i].identifier) ierror(0);
-      if((*t->exact->sl)[i].identifier[0]){
-        if(cl->other) used_clist(st,cl->other);
-        cl=cl->next;
+    if(!cl||!cl->tree){
+      for(i=0;i<t->exact->count&&cl;i++){
+	st=(*t->exact->sl)[i].styp;
+	if(!(*t->exact->sl)[i].identifier) ierror(0);
+	if(zmeqto(l2zm((long)i),cl->idx)){
+	  if((*t->exact->sl)[i].identifier[0]){
+	    if(cl->other) used_clist(st,cl->other);
+	    cl=cl->next;
+	  }
+	}
       }
     }
     return;
@@ -468,12 +478,12 @@ static int check_nonrecursive(Var *v,Var *callee)
 
 static void cnv_static(Var *v)
 {
-  if((v->storage_class==AUTO||v->storage_class==REGISTER)&&v->offset>=0&&v->reg==0/*&&!(v->flags&CONVPARAMETER)*/){
+  if((v->storage_class==AUTO||v->storage_class==REGISTER)&&zmleq(Z0,v->offset)&&v->reg==0/*&&!(v->flags&CONVPARAMETER)*/){
     v->storage_class=STATIC;
     v->offset=++label;
     v->flags|=(USEDASSOURCE|USEDASDEST|DEFINED|STATICAUTO);
     if(v->clist){free_clist(v->clist);v->clist=0;}
-    if(DEBUG&1024) printf("changing %s(%p) to static (L%ld)\n",v->identifier,v,v->offset);
+    if(DEBUG&1024) printf("changing %s(%p) to static (L%ld)\n",v->identifier,v,zm2l(v->offset));
   }
 }
 
@@ -529,7 +539,7 @@ void recalc_offsets(flowgraph *g)
   used=mymalloc(sizeof(bvtype *)*(vcount-rcount));
   /*  Tabelle, welche Variable in welchem Block belegt ist, aufbauen  */
   for(i=0;i<vcount-rcount;i++){
-    if(zmleq(l2zm(0L),vilist[i]->offset)&&(vilist[i]->storage_class==AUTO||vilist[i]->storage_class==REGISTER)){
+    if((vilist[i]->storage_class==AUTO||vilist[i]->storage_class==REGISTER)&&zmleq(l2zm(0L),vilist[i]->offset)){
       if(DEBUG&2048) printf("setting up for %s,%ld\n",vilist[i]->identifier,zm2l(vilist[i]->offset));
       used[i]=mymalloc(bsize);
       memset(used[i],0,bsize);
@@ -632,11 +642,14 @@ void recalc_offsets(flowgraph *g)
 	    if(m==fg->end) break;
 	  }
 	  for(i=vcount-rcount-1;i>=0;i--){
-	    if(!BTST(vpos,i)){
-	      if(DEBUG&1024) printf("local memory for %s(%p) and %s(%p) equal\n",vilist[i]->identifier,(void *)vilist[i],vilist[b]->identifier,(void *)vilist[b]);
+	    if(!BTST(vpos,i)&&i!=b){
+	      if(DEBUG&1024) printf("local memory for %s(%p) and %s(%p) equal",vilist[i]->identifier,(void *)vilist[i],vilist[b]->identifier,(void *)vilist[b]);
 	      eqto[b]=i;
 	      if(!zmleq(al[b],al[i])) al[i]=al[b];
 	      if(!zmleq(sz[b],sz[i])) sz[i]=sz[b];
+	      if(!zmleq(al[i],al[b])) al[b]=al[i];
+	      if(!zmleq(sz[i],sz[b])) sz[b]=sz[i];
+	      if(DEBUG&1024) printf(" sz=%ld al=%ld\n",(long)zm2l(al[i]),(long)zm2l(sz[i]));
 	      BSET(vtmp,i);
 	      /*bvunite(used[i],used[b],bsize);*/
 	      break;
@@ -655,6 +668,7 @@ void recalc_offsets(flowgraph *g)
   /*  schauen, ob Variablen in gleichen Speicher koennen  */
   if(DEBUG&1024) printf("looking for distinct variables\n");
   for(i=0;i<vcount-rcount;i++){
+
     if(!used[i]||eqto[i]>=0) continue;
     if(!memcmp(used[i],empty,bsize)){ free(used[i]);used[i]=0;continue;}
     for(b=i+1;b<vcount-rcount;b++){
@@ -669,11 +683,28 @@ void recalc_offsets(flowgraph *g)
 	eqto[b]=i;
 	if(!zmleq(al[b],al[i])) al[i]=al[b];
 	if(!zmleq(sz[b],sz[i])) sz[i]=sz[b];
+	if(!zmleq(al[i],al[b])) al[b]=al[i];
+	if(!zmleq(sz[i],sz[b])) sz[b]=sz[i];
 	bvunite(used[i],used[b],bsize);
       }
     }
   }
 
+  if(DEBUG&1024) printf("propagating sz/al\n");
+  do{
+    if(DEBUG&1024) printf("ppass\n");
+    b=0;
+    for(i=0;i<vcount-rcount;i++){
+      j=i;
+      while((j=eqto[j])>=0){
+	if(!zmleq(sz[j],sz[i])){sz[i]=sz[j];b=1;j=i;if(DEBUG&1024) printf("lmset %d(%p) to sz %ld\n",i,vilist[i],zm2l(sz[i]));}
+	if(!zmleq(sz[i],sz[j])){sz[j]=sz[i];b=1;if(DEBUG&1024) printf("lmset %d(%p) to sz %ld\n",j,vilist[j],zm2l(sz[j]));}
+	if(!zmleq(al[j],al[i])){al[i]=al[j];b=1;j=i;if(DEBUG&1024) printf("lmset %d(%p) to al %ld\n",i,vilist[i],zm2l(al[i]));}
+	if(!zmleq(al[i],al[j])){al[j]=al[i];b=1;if(DEBUG&1024) printf("lmset %d(%p) to al %ld\n",j,vilist[j],zm2l(al[j]));}
+
+      }
+    }
+  }while(b);
 
   if(DEBUG&1024) printf("final recalculating\n");
   max_offset=recalc_start_offset;
@@ -682,21 +713,31 @@ void recalc_offsets(flowgraph *g)
     for(a=maxalign;!zmeqto(a,Z0);a=zmsub(a,Z1)){
       for(i=0;i<vcount-rcount;i++){
 	if(!used[i]) continue;
-	if(!zmeqto(a,falign(vilist[i]->vtyp))) continue;
+	if(!zmeqto(a,al[i])) continue;
 	if(eqto[i]>=0&&pass<2) continue;
+
 	if(pass==0){
-	  zmax sz=szof(vilist[i]->vtyp);
-	  if(!zmleq(sz,sizetab[MAXINT])&&!zmleq(sz,sizetab[LDOUBLE])) continue;
+	  if(!zmleq(sz[i],sizetab[MAXINT])&&!zmleq(sz[i],sizetab[LDOUBLE])) continue;
 	}
 	free(used[i]);
 	used[i]=0;
-	if(DEBUG&2048) printf("adjusting offset for %s,%ld\n",vilist[i]->identifier,zm2l(vilist[i]->offset));
+	if(DEBUG&2048) printf("adjusting offset for %s,%ld(%p)\n",vilist[i]->identifier,zm2l(vilist[i]->offset),(void*)vilist[i]);
 	if(eqto[i]>=0){
-	  vilist[i]->offset=vilist[eqto[i]]->offset;
+	  j=eqto[i];
+	  do{
+	  }while(used[j]&&(j=eqto[j])>=0);
+	  if(j<0) ierror(0);
+	  if(!zmleq(sz[i],sz[j])) 
+	    {printf("%d(%p) %d(%p) %ld %ld\n",i,vilist[i],j,vilist[j],zm2l(sz[i]),zm2l(sz[j]));ierror(0);}
+	  if(!zmleq(al[i],al[j]))
+	    {printf("%d(%p) %d(%p) %ld %ld\n",i,vilist[i],j,vilist[j],zm2l(al[i]),zm2l(al[j]));ierror(0);}
+	  vilist[i]->offset=vilist[j]->offset;
+	  if(DEBUG&2048) printf("set to %ld (eqto)\n",(long)zm2l(vilist[i]->offset));
 	  continue;
 	}
 	vilist[i]->offset=zmmult(zmdiv(zmadd(max_offset,zmsub(al[i],l2zm(1L))),al[i]),al[i]);
 	max_offset=zmadd(vilist[i]->offset,sz[i]);
+	if(DEBUG&2048) printf("set to %ld (std)\n",(long)zm2l(vilist[i]->offset));
       }
     }
   }
@@ -788,7 +829,7 @@ int insert_const_memcpy(flowgraph *fg)
 	Var *v=p->q1.v;
 	type *t=v->vtyp;
 	int ok=1;
-	
+
 	for(i=Z0;zmleq(i,sz);i=zmadd(i,Z1)){
 	  if(!get_clist_byte(t,v->clist,i,&zuc))
 	    ok=0;
@@ -822,7 +863,11 @@ int insert_const_memcpy(flowgraph *fg)
 	      type *pt;
 	      if(p->z.flags&VAR){
 		if(p->z.flags&DREFOBJ){
-		  pt=clone_typ(p->z.v->vtyp);
+		  type *new=new_typ();
+		  new->flags=p->z.dtyp&NQ;
+		  new->next=new_typ();
+		  new->next->flags=typ;
+		  pt=new;
 		}else{
 		  pt=new_typ();
 		  pt->flags=POINTER_TYPE(p->z.v->vtyp);
@@ -838,6 +883,7 @@ int insert_const_memcpy(flowgraph *fg)
 		new->next->flags=typ;
 		pt=new;
 	      }
+
 	      ptr=add_tmp_var(pt);
 	      new=new_IC();
 	      new->z.flags=VAR;
@@ -875,7 +921,7 @@ int insert_const_memcpy(flowgraph *fg)
 		new->q1.val.vuchar=zuc;
 	      }else{
 		int state;
-		gval.vmax=get_clist_int(t,v->clist,zmadd(i,p->q1.val.vmax),sizetab[typ],&state);
+		gval.vmax=get_clist_int(t,v->clist,zmadd(i,p->q1.val.vmax),zm2l(sizetab[typ]),&state);
 		if(!state) ierror(0);
 		eval_const(&gval,MAXINT);
 		insert_const(&new->q1.val,typ);
@@ -908,7 +954,7 @@ int insert_const_memcpy(flowgraph *fg)
 	      i=zmadd(i,sizetab[typ]);
 		
 	    }
-	    remove_IC_fg(fg,p);
+	    remove_IC_fg(g,p);
 	    p=new;
 	    changed=1;
 	  }
@@ -1106,6 +1152,44 @@ int peephole()
 	    p->q2.val=gval;p2->code=BLT;changed=1;
 	    if(DEBUG&1024) printf("cmp #-1 replaced by cmp #0\n(2)");
 	  }
+	}else if((t&UNSIGNED)&&zmeqto(vmax,Z0)){
+	  IC *p2=p->next;
+	  if(p2->code==BLT){
+	    if(DEBUG&1024){printf("cmp uns,#0; blt eliminated\n");pric2(stdout,p);}
+	    remove_IC(p);
+	    p=p2->next;
+	    remove_IC(p2);
+	    continue;
+	  }
+	  if(p2->code==BGE){
+	    if(DEBUG&1024){printf("cmp uns,#0; bge to bra\n");pric2(stdout,p);}
+	    remove_IC(p);
+	    p2->code=BRA;
+	    p=p2;
+	    continue;
+	  }
+	  if(p2->code==BLE){
+	    if(DEBUG&1024){printf("cmp uns,#0; ble to beq\n");pric2(stdout,p);}
+	    p2->code=BEQ;
+	  }else if(p2->code==BGT){
+	    if(DEBUG&1024){printf("cmp uns,#0; bgt to bne\n");pric2(stdout,p);}
+	    p2->code=BNE;
+	  }
+	}else if((t&UNSIGNED)&&zmeqto(vmax,Z1)){
+	  IC *p2=p->next;
+	  if(p2->code==BLT){
+	    if(DEBUG&1024){printf("cmp uns,#1; blt to cmp #0;beq\n");pric2(stdout,p);}
+	    gval.vmax=Z0;
+	    eval_const(&gval,MAXINT);
+	    insert_const(&p->q2.val,p->typf);
+	    p2->code=BEQ;
+	  }else if(p2->code==BGE){
+	    if(DEBUG&1024){printf("cmp uns,#1; bge to cmp #0;bne\n");pric2(stdout,p);}
+	    gval.vmax=Z0;
+	    eval_const(&gval,MAXINT);
+	    insert_const(&p->q2.val,p->typf);
+	    p2->code=BNE;
+	  }
 	}
       }
       if(c>=BEQ&&c<BRA&&p->next&&p->next->code==BRA&&p->typf==p->next->typf){
@@ -1190,7 +1274,7 @@ int peephole()
 	  zmax size;
 	  size=zmmult(sizetab[q1typ(p)&NQ],char_bit);
 	  if(zmleq(size,vmax)){
-	    if(c==LSHIFT){
+	    if(c==LSHIFT||(q1typ(p)&UNSIGNED)){
 	      if(DEBUG&1024){ printf("lshift converted to ASSIGN 0:\n");pric2(stdout,p);}
 	      o.val.vmax=l2zm(0L);eval_const(&o.val,MAXINT);
 	      insert_const(&p->q1.val,t);p->q1.flags=KONST;
@@ -1397,20 +1481,24 @@ int peephole()
 	remove_IC(d); continue;
       }
 #if 1
+      /* TODO: better decision when to use for which targets? */
       if(c==CONVERT&&(p->q1.flags&(VAR|DREFOBJ))==VAR&&(p->z.flags&(VAR|DREFOBJ))==VAR&&!is_volatile_ic(p)){
 	IC *p1=p->next;
-	if(p1&&p1->code==CONVERT&&(p->typf2&NQ)==(p1->typf&NQ)&&(p->typf&NQ)==(p1->typf2&NQ)&&zmleq(sizetab[p->typf2&NQ],sizetab[p->typf&NQ])&&!compare_objs(&p->z,&p1->q1,p->typf2)&&!is_volatile_ic(p1)){
+	if(p1&&p1->code==CONVERT&&(p->typf2&NQ)==(p1->typf&NQ)&&(p->typf&NQ)==(p1->typf2&NQ)&&zmleq(sizetab[p->typf2&NQ],sizetab[p->typf&NQ])&&!compare_objs(&p->z,&p1->q1,p->typf2)&&!is_volatile_ic(p1)&&ISFLOAT(p->typf)==ISFLOAT(p->typf2)){
 	  if(DEBUG&1024){printf("propagating CONVERTS:\n");pric2(stdout,p);pric2(stdout,p1);}
 	  p1->q1=p->q1;
 	  p1->code=ASSIGN;
 	  p1->q2.val.vmax=sizetab[p1->typf&NQ];
 	  continue;
 	}
-	if(p1&&(p1->code==ADDI2P||p1->code==SUBIFP)&&(p1->typf&NU)==(p->typf&NU)&&!compare_objs(&p->z,&p1->q2,p1->typf)&&!is_volatile_ic(p1)&&(p->typf2&NQ)>=MINADDI2P&&(p->typf2&NQ)<=MAXADDI2P){
-	  if(DEBUG&1024){printf("propagating CONVERT/ADDI2P:\n");pric2(stdout,p);pric2(stdout,p1);}
-	  p1->q2=p->q1;
-	  p1->typf=p->typf2;
-	  continue;
+	/* TODO: better decision when to use for which targets? */
+	if(p1&&(p1->code==ADDI2P||p1->code==SUBIFP)&&(p1->typf&NU)==(p->typf&NU)&&!compare_objs(&p->z,&p1->q2,p1->typf)&&!is_volatile_ic(p1)&&(p->typf2&NQ)>=MINADDI2P&&(p->typf2&NQ)<=MAXADDI2P&&zmleq(sizetab[p->typf2&NQ],sizetab[p->typf&NQ])){
+	  if((p->typf2&UNSIGNED)&&(p->typf2&NU)>=MINADDUI2P){
+	    if(DEBUG&1024){printf("propagating CONVERT/ADDI2P:\n");pric2(stdout,p);pric2(stdout,p1);}
+	    p1->q2=p->q1;
+	    p1->typf=p->typf2;
+	    continue;
+	  }
 	}
       }
 #endif
@@ -1435,6 +1523,18 @@ int peephole()
 	}
       }
 
+      if((c==ADDI2P||c==SUBIFP)&&(p->q1.flags&(VARADR|DREFOBJ))==VARADR){
+	IC *p2=p->next;
+	if(p2->code==ADDI2P&&p->typf2==p2->typf2&&!compare_objs(&p->z,&p2->q1,p->typf2)&&(p2->q2.flags&(KONST|DREFOBJ))==KONST){
+	  if(DEBUG&1024){printf("rearranging ADDI2P to fold VARADR+const\n");pric2(stdout,p);pric2(stdout,p2);}
+	  eval_const(&p2->q2.val,p2->typf);
+	  p->q1.val.vmax=zmadd(p->q1.val.vmax,vmax);
+	  p2->code=ASSIGN;
+	  p2->typf=p2->typf2;
+	  p2->q2.val.vmax=sizetab[p2->typf&NQ];
+	}
+      }
+
       p=p->next;
     }
     if(changed) done|=changed;
@@ -1455,7 +1555,7 @@ void insert_loads()
     if(p->typf&VOLATILE) continue;
     if(p->typf2&VOLATILE) continue;
     if(p->q2.flags||c==PUSH){
-      if((dref_cse&&(p->q1.flags&DREFOBJ)&&!(p->q1.dtyp&VOLATILE))||(static_cse&&(p->q1.flags&(VAR|VARADR))==VAR&&(p->q1.v->storage_class==EXTERN||p->q1.v->storage_class==STATIC))){
+      if((dref_cse&&(p->q1.flags&DREFOBJ)&&!(p->q1.dtyp&(PVOLATILE|VOLATILE)))||(static_cse&&(p->q1.flags&(VAR|VARADR))==VAR&&(p->q1.v->storage_class==EXTERN||p->q1.v->storage_class==STATIC))){
         new=new_IC();
         new->code=ASSIGN;
 	new->typf=q1typ(p);
@@ -1474,7 +1574,7 @@ void insert_loads()
 	}else
 	  free(new);
       }
-      if((dref_cse&&(p->q2.flags&DREFOBJ)&&!(p->q2.dtyp&VOLATILE))||(static_cse&&(p->q2.flags&(VAR|VARADR))==VAR&&(p->q2.v->storage_class==EXTERN||p->q2.v->storage_class==STATIC))){
+      if((dref_cse&&(p->q2.flags&DREFOBJ)&&!(p->q2.dtyp&(PVOLATILE|VOLATILE)))||(static_cse&&(p->q2.flags&(VAR|VARADR))==VAR&&(p->q2.v->storage_class==EXTERN||p->q2.v->storage_class==STATIC))){
         new=new_IC();
         new->code=ASSIGN;
 	new->typf=q2typ(p);
@@ -1493,7 +1593,7 @@ void insert_loads()
 	}else
 	  free(new);
       }
-      if(p->q2.flags&&((dref_cse&&(p->z.flags&DREFOBJ)&&!(p->z.dtyp&VOLATILE))||(static_cse&&(p->z.flags&(VAR|VARADR))==VAR&&(p->z.v->storage_class==EXTERN||p->z.v->storage_class==STATIC)))){
+      if(p->q2.flags&&((dref_cse&&(p->z.flags&DREFOBJ)&&!(p->z.dtyp&(PVOLATILE|VOLATILE)))||(static_cse&&(p->z.flags&(VAR|VARADR))==VAR&&(p->z.v->storage_class==EXTERN||p->z.v->storage_class==STATIC)))){
 	/* translate x op y -> mem to x op y -> tmp; move tmp -> mem */
         new=new_IC();
         new->code=ASSIGN;
@@ -1683,6 +1783,11 @@ static int cross_module_inline(int only_full)
 	while(ip){
 	  Var *iv;
 	  int c;
+	  if(ip->code==CONVERT&&(ip->q1.flags&(VAR|DREFOBJ))==VAR&&(ip->q1.v->flags&CONVPARAMETER)&&(ip->z.flags&(VAR|DREFOBJ))==VAR&&ip->q1.v==ip->z.v){
+	    if(DEBUG&1024) {printf("eliminate oldstyle CONVERT:\n");pric2(stdout,ip);}
+	    ip=ip->next;
+	    continue;
+	  }
 	  new=new_IC();
 	  *new=*ip;
 	  ip->copy=new;
@@ -1919,6 +2024,10 @@ void optimize(long flags,Var *function)
       }
       if(flags&4){
 	int repeat;
+
+	if(early_eff_ics&&!no_eff_ics)
+	  mark_eff_ics();
+
 	do{
 	  do{
 	    num_exp();
@@ -2006,7 +2115,8 @@ void optimize(long flags,Var *function)
 	}while(0/*repeat*/);
       }
       if((flags&160)==160){
-	mark_eff_ics();
+	if(!no_eff_ics)
+	  mark_eff_ics();
 
 	r=loop_optimizations(fg);
 	gchanged|=r;

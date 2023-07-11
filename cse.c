@@ -1,4 +1,4 @@
-/*  $VER: vbcc (cse.c) $Revision: 1.9 $    */
+/*  $VER: vbcc (cse.c) $Revision: 1.11 $    */
 /*  verfuegbare Ausdruecke und common subexpression elimination */
 
 #include "opt.h"
@@ -98,7 +98,6 @@ void available_expressions(flowgraph *fg)
     if(DEBUG&16384) printf("available expressions heapsize=%lu\n",heapsize);
     free(tmp);
 }
-
 
 int compare_objs(obj *o1,obj *o2,int t)
 /*  Vergleicht die beiden Objekte; liefert 0, wenn sie gleich sind, sonst   */

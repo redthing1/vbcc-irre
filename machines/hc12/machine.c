@@ -24,7 +24,7 @@ static char FILE_[]=__FILE__;
 /*  Public data that MUST be there.                             */
 
 /* Name and copyright. */
-char cg_copyright[]="vbcc code-generator for 6809/6803/68hc12 V0.1 (c) in 2000-2020 by Volker Barthelmann";
+char cg_copyright[]="vbcc code-generator for 6809/6803/68hc12 V1.0 (c) in 2000-2021 by Volker Barthelmann";
 
 /*  Commandline-flags the code-generator accepts                */
 int g_flags[MAXGF]={VALFLAG,VALFLAG,0,0,
@@ -32,7 +32,7 @@ int g_flags[MAXGF]={VALFLAG,VALFLAG,0,0,
 		    0,0};
 char *g_flags_name[MAXGF]={"cpu","fpu","no-delayed-popping","const-in-data",
                            "merge-constants","no-peephole","mem-cse","acc-glob",
-			   "pcrel","drel","no-char-addi2p","nodx","nou"};
+			   "pcrel","drel","no-char-addi2p","nodx","nou","double64"};
 union ppi g_flags_val[MAXGF];
 
 /* Typenames (needed because of HAVE_EXT_TYPES). */
@@ -73,9 +73,9 @@ struct Typ *regtype[MAXR+1];
 int regsa[MAXR+1];
 
 /*  Specifies which registers may be scratched by functions.    */
-int regscratch[MAXR+1]={0,1,1,0,1,0};
+int regscratch[MAXR+1]={0,1,1,0,1,0,1};
 
-int reg_prio[MAXR+1]={0,0,1,1,0,0};
+int reg_prio[MAXR+1]={0,0,1,1,0,0,1};
 
 struct reg_handle empty_reg_handle={0};
 
@@ -137,7 +137,7 @@ static char *x_t[]={"?","","b","","","","","","","","","","","","","",""};
 static char *ccs[]={"eq","ne","lt","ge","le","gt"};
 static char *uccs[]={"eq","ne","lo","hs","ls","hi"};
 static char *logicals[]={"ora","eor","and"};
-static char *dct[]={"",".bit",".byte",".2byte",".2byte",".4byte",".8byte",".4byte",".8byte",".8byte",
+static char *dct[]={"",".bit",".byte",".2byte",".2byte",".4byte",".8byte",".4byte",".4byte",".4byte",
 		    "(void)",".2byte",".34byte",".34byte"};
 static char *idprefix="",*labprefix=".l";
 static int exit_label,have_frame;
@@ -163,9 +163,10 @@ static struct obj mobj;
 #define STR_BADDR "baddr"
 
 #define ISNULL() (zmeqto(vmax,l2zm(0L))&&zumeqto(vumax,ul2zum(0UL))&&zldeqto(vldouble,d2zld(0.0)))
-#define ISLWORD(t) ((t&NQ)==LONG||(t&NQ)==FPOINTER||(t&NQ)==HPOINTER||(t&NQ)==FLOAT)
+#define ISLWORD(t) ((t&NQ)==LONG||(t&NQ)==FPOINTER||(t&NQ)==HPOINTER||ISFLOAT(t&NQ))
 #define ISHWORD(t) ((t&NQ)==INT||(t&NQ)==SHORT||(t&NQ)==NPOINTER)
 #define ISCHWORD(t) ((t&NQ)==CHAR||ISHWORD(t))
+#define ISCHAR(t) ((t&NQ)==CHAR)
 #define ISSTATIC(v) ((v)->storage_class==EXTERN||(v)->storage_class==STATIC)
 #define ISBADDR(v) ((v)->vtyp->attr&&strstr(STR_BADDR,(v)->vtyp->attr))
 /*FIXME*/
@@ -190,6 +191,7 @@ static struct obj mobj;
 #define SPULLD   (CPU==6812?"\tpuld\n":"\tpuls\ta,b\n")
 #define SCMP(x)  (CPU==6812?"\tcp" x "\t":"\tcmp" x "\t")
 #define SEX      (CPU==6812?"\tsex\tb,d\n":"\tsex\n")
+#define EXTEND(t) (((t)&UNSIGNED)?"\tclra\n":SEX)
 
 #define SGN16(x) (zm2l(zi2zm(zm2zi(l2zm((long)(x))))))
 
@@ -560,7 +562,14 @@ static void emit_obj(FILE *f,struct obj *p,int t)
     }
     if(flags==KONSTINC){
       eval_const(&p->val,p->am->base);
-      if((t&NQ)==CHAR){
+      if(ISFLOAT(p->am->base)){
+	unsigned char *m=(unsigned char *)&p->val.vfloat;
+	if(zm2l(p->am->offset)==2)
+	  emit(f,"#0x%02x%02x",m[2],m[3]);
+	else
+	  emit(f,"#0x%02x%02x",m[0],m[1]);
+	return;
+      }else if((t&NQ)==CHAR){
 	vumax=zumrshift(vumax,24-8*p->am->offset);
 	vumax=zumand(vumax,ul2zum(255UL));
       }else{
@@ -727,7 +736,7 @@ static void inc_addr(struct obj *o,long val,int t)
       else o->am->offset=-val;
     }else
       ierror(0);
-  }else if(o->flags&DREFOBJ){
+  }else if((o->flags&(DREFOBJ|KONST))==DREFOBJ){
     struct AddressingMode *am;
     o->am=am=mymalloc(sizeof(*am));
     am->flags=IMM_IND;
@@ -735,7 +744,7 @@ static void inc_addr(struct obj *o,long val,int t)
     am->base=o->reg;
     am->offset=zm2l(val);
     am->v=0;
-  }else if(o->flags&KONST){
+  }else if((o->flags&(DREFOBJ|KONST))==KONST){
     struct AddressingMode *am;
     if(o->am) ierror(0);
     o->am=am=mymalloc(sizeof(*am));
@@ -1434,6 +1443,12 @@ int init_cg(void)
 
   CPU=CPUOPT;
 
+  if(g_flags[13]&USEDFLAG){
+    msizetab[DOUBLE]=msizetab[LDOUBLE]=8;
+    dct[DOUBLE]=dct[LDOUBLE]=".8byte";
+  }
+  
+
   /*  Initialize some values which cannot be statically initialized   */
   /*  because they are stored in the target's arithmetic.             */
   maxalign=l2zm(1L);
@@ -1477,6 +1492,7 @@ int init_cg(void)
   if(g_flags[11]&USEDFLAG) nodx=1;
   if(g_flags[12]&USEDFLAG) nou=1;
 
+
   if(CPU==6812) switchsubs=1;
 
   /*  Reserve a few registers for use by the code-generator.      */
@@ -1515,15 +1531,24 @@ int init_cg(void)
     marray[1]="__6809__";
   if(CPU==6309)
     marray[1]="__6309__";
+  if(CPU==9)
+    marray[1]="__TURBO9__";
   target_macros=marray;
 
 
-  declare_builtin("__mulint16",INT,INT,acc,INT,0,1,0);
-  declare_builtin("__divint16",INT,INT,ix,INT,acc,1,0);
-  declare_builtin("__divuint16",UNSIGNED|INT,UNSIGNED|INT,ix,UNSIGNED|INT,acc,1,0);
-  declare_builtin("__modint16",INT,INT,ix,INT,acc,1,0);
-  declare_builtin("__moduint16",UNSIGNED|INT,UNSIGNED|INT,ix,UNSIGNED|INT,acc,1,0);
-
+  if(CPU==9||CPU==6812){
+    declare_builtin("__mulint16",INT,INT,acc,INT,iy,1,mystrdup("\temul"));
+    declare_builtin("__divint16",INT,INT,acc,INT,ix,1,mystrdup("\tidivs\n\ttfr\tx,d"));
+    declare_builtin("__divuint16",UNSIGNED|INT,UNSIGNED|INT,acc,UNSIGNED|INT,ix,1,mystrdup("\tidiv\n\ttfr\tx,d"));
+    declare_builtin("__modint16",INT,INT,acc,INT,ix,1,mystrdup("\tidivs"));
+    declare_builtin("__moduint16",UNSIGNED|INT,UNSIGNED|INT,acc,UNSIGNED|INT,ix,1,mystrdup("\tidiv"));
+  }else{
+    declare_builtin("__mulint16",INT,INT,acc,INT,0,1,0);
+    declare_builtin("__divint16",INT,INT,ix,INT,acc,1,0);
+    declare_builtin("__divuint16",UNSIGNED|INT,UNSIGNED|INT,ix,UNSIGNED|INT,acc,1,0);
+    declare_builtin("__modint16",INT,INT,ix,INT,acc,1,0);
+    declare_builtin("__moduint16",UNSIGNED|INT,UNSIGNED|INT,ix,UNSIGNED|INT,acc,1,0);
+  }
 
   /* TODO: set argument registers */
   declare_builtin("__mulint32",LONG,LONG,0,LONG,0,1,0);
@@ -1552,13 +1577,31 @@ int init_cg(void)
   declare_builtin("__flt64tosint32",LONG,DOUBLE,0,0,0,1,0);
   declare_builtin("__flt64touint32",UNSIGNED|LONG,DOUBLE,0,0,0,1,0);
 
+  declare_builtin("__sint16toflt32",FLOAT,INT,0,0,0,1,0);
+  declare_builtin("__uint16toflt32",FLOAT,UNSIGNED|INT,0,0,0,1,0);
+  declare_builtin("__sint16toflt64",DOUBLE,INT,0,0,0,1,0);
+  declare_builtin("__uint16toflt64",DOUBLE,UNSIGNED|INT,0,0,0,1,0);
+  declare_builtin("__flt32tosint16",INT,FLOAT,0,0,0,1,0);
+  declare_builtin("__flt32touint16",UNSIGNED|INT,FLOAT,0,0,0,1,0);
+  declare_builtin("__flt64tosint16",INT,DOUBLE,0,0,0,1,0);
+  declare_builtin("__flt64touint16",UNSIGNED|INT,DOUBLE,0,0,0,1,0);
+
+  declare_builtin("__sint8toflt32",FLOAT,CHAR,0,0,0,1,0);
+  declare_builtin("__uint8toflt32",FLOAT,UNSIGNED|CHAR,0,0,0,1,0);
+  declare_builtin("__sint8toflt64",DOUBLE,CHAR,0,0,0,1,0);
+  declare_builtin("__uint8toflt64",DOUBLE,UNSIGNED|CHAR,0,0,0,1,0);
+  declare_builtin("__flt32tosint8",CHAR,FLOAT,0,0,0,1,0);
+  declare_builtin("__flt32touint8",UNSIGNED|CHAR,FLOAT,0,0,0,1,0);
+  declare_builtin("__flt64tosint8",CHAR,DOUBLE,0,0,0,1,0);
+  declare_builtin("__flt64touint8",UNSIGNED|CHAR,DOUBLE,0,0,0,1,0);
+
 
 
   declare_builtin("__mulint64",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__addint64",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__subint64",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__andint64",LLONG,LLONG,0,LLONG,0,1,0);
-  declare_builtin("__orint64",LLONG,LLONG,0,LLONG,0,1,0);
+  declare_builtin("__orint64" ,LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__eorint64",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__negint64",LLONG,LLONG,0,0,0,1,0);
   declare_builtin("__lslint64",LLONG,LLONG,0,INT,0,1,0);
@@ -1588,15 +1631,22 @@ int init_cg(void)
   declare_builtin("__subflt32",FLOAT,FLOAT,0,FLOAT,0,1,0);
   declare_builtin("__mulflt32",FLOAT,FLOAT,0,FLOAT,0,1,0);
   declare_builtin("__divflt32",FLOAT,FLOAT,0,FLOAT,0,1,0);
-  declare_builtin("__negflt32",FLOAT,FLOAT,0,FLOAT,0,1,0);
-  declare_builtin("__cmpflt32",INT,FLOAT,0,FLOAT,0,1,0);
+  declare_builtin("__negflt32",FLOAT,FLOAT,0,0,0,1,0);
+  declare_builtin("__cmpflt32",CHAR,FLOAT,0,FLOAT,0,1,0);
 
-  declare_builtin("__addflt64",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
-  declare_builtin("__subflt64",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
-  declare_builtin("__mulflt64",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
-  declare_builtin("__divflt64",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
-  declare_builtin("__negflt64",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
-  declare_builtin("__cmpflt64",INT,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__addflt32 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__subflt32 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__mulflt32 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__divflt32 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__negflt32 ",DOUBLE,DOUBLE,0,0,0,1,0);
+  declare_builtin("__cmpflt32 ",CHAR,DOUBLE,0,DOUBLE,0,1,0);
+
+  declare_builtin("__addflt64 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__subflt64 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__mulflt64 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__divflt64 ",DOUBLE,DOUBLE,0,DOUBLE,0,1,0);
+  declare_builtin("__negflt64 ",DOUBLE,DOUBLE,0,0,0,1,0);
+  declare_builtin("__cmpflt64 ",CHAR,DOUBLE,0,DOUBLE,0,1,0);
 
 
   return 1;
@@ -1742,10 +1792,15 @@ char *use_libcall(int c,int t,int t2)
   char *ret=0;
 
   if(c==COMPARE){
-    if((t&NQ)==LLONG||ISFLOAT(t)){
-      sprintf(fname,"__cmp%s%s%ld",(t&UNSIGNED)?"u":"s",ISFLOAT(t)?"flt":"int",zm2l(sizetab[t&NQ])*8);
+    if((t&NQ)==LLONG){
+      sprintf(fname,"__cmp%sint32",(t&UNSIGNED)?"u":"s");
       ret=fname;
     }
+    if(ISFLOAT(t)){
+      return (t==FLOAT)?"__cmpflt32":"__cmpflt32 ";
+      ret=fname;
+    }
+
   }else{
     t&=NU;
     t2&=NU;
@@ -1753,15 +1808,18 @@ char *use_libcall(int c,int t,int t2)
     if(t2==LDOUBLE) t2=DOUBLE;
     if(c==CONVERT){
       if(t==t2) return 0;
+      if(ISFLOAT(t)&&ISFLOAT(t2)) return 0;
+#if 0
+      /* currently support only 32bit flt */
       if(t==FLOAT&&t2==DOUBLE) return "__flt64toflt32";
       if(t==DOUBLE&&t2==FLOAT) return "__flt32toflt64";
-
+#endif
       if(ISFLOAT(t)){
-        sprintf(fname,"__%cint%ldtoflt%d",(t2&UNSIGNED)?'u':'s',zm2l(sizetab[t2&NQ])*8,(t==FLOAT)?32:64);
+        sprintf(fname,"__%cint%ldtoflt%ld",(t2&UNSIGNED)?'u':'s',zm2l(sizetab[t2&NQ])*8,zm2l(sizetab[t&NQ])*8);
         ret=fname;
       }
       if(ISFLOAT(t2)){
-        sprintf(fname,"__flt%dto%cint%ld",((t2&NU)==FLOAT)?32:64,(t&UNSIGNED)?'u':'s',zm2l(sizetab[t&NQ])*8);
+        sprintf(fname,"__flt%ldto%cint%ld",zm2l(sizetab[t2&NQ])*8,(t&UNSIGNED)?'u':'s',zm2l(sizetab[t&NQ])*8);
         ret=fname;
       }
     }
@@ -1780,13 +1838,13 @@ char *use_libcall(int c,int t,int t2)
           sprintf(fname,"__%sint32",ename[c]);
           ret=fname;
         }else{
-	  sprintf(fname,"__%s%s%s%ld",ename[c],(c!=MULT&&(t&UNSIGNED))?"u":"",ISFLOAT(t)?"flt":"int",zm2l(sizetab[t&NQ])*8);
+	  sprintf(fname,"__%s%s%s%ld%s",ename[c],(c!=MULT&&(t&UNSIGNED))?"u":"",ISFLOAT(t)?"flt":"int",zm2l(sizetab[t&NQ])*8,(t&NQ)>=DOUBLE?" ":"");
           ret=fname;
 	}
       }
     }
-    if((c==MULT&&(CPU==6809||(t&NQ)==LONG))||c==DIV||c==MOD){
-      sprintf(fname,"__%s%s%s%ld",ename[c],(c!=MULT&&(t&UNSIGNED))?"u":"",ISFLOAT(t)?"flt":"int",zm2l(sizetab[t&NQ])*8);
+    if((c==MULT/*&&(CPU!=6812||(t&NQ)==LONG)*/)||c==DIV||c==MOD){
+      sprintf(fname,"__%s%s%s%ld%s",ename[c],(c!=MULT&&(t&UNSIGNED))?"u":"",ISFLOAT(t)?"flt":"int",zm2l(sizetab[t&NQ])*8,(t&NQ)>=DOUBLE?" ":"");
       ret=fname;
     }
   }
@@ -1802,6 +1860,11 @@ int must_convert(int o,int t,int const_expr)
 {
   int op=o&NQ,tp=t&NQ;
   if(op==tp) return 0;
+  if(ISFLOAT(op)){
+    if(ISFLOAT(tp)) return 0;
+    return 1;
+  }
+  if(ISFLOAT(tp)) return 1;
   if(ISHWORD(op)&&ISHWORD(tp)) return 0;
   if(ISFLOAT(op)||ISFLOAT(tp)) return 1;
   if(ISLWORD(op)&&ISLWORD(tp)) return 0;
@@ -1893,10 +1956,10 @@ void gen_dc(FILE *f,int t,struct const_list *p)
       /*  auch wieder nicht sehr schoen und IEEE noetig   */
       unsigned char *ip;
       ip=(unsigned char *)&p->val.vdouble;
-      emit(f,"0x%02x%02x%02x%02x",ip[3],ip[2],ip[1],ip[0]);
-      if((t&NQ)==DOUBLE||(t&NQ)==LDOUBLE){
-	emit(f,",0x%02x%02x%02x%02x",ip[7],ip[6],ip[5],ip[4]);
+      if(zm2l(sizetab[t&NQ])==8){
+	emit(f,",0x%02x%02x%02x%02x",ip[4],ip[5],ip[6],ip[7]);
       }
+      emit(f,"0x%02x%02x%02x%02x",ip[0],ip[1],ip[2],ip[3]);
     }else{
       emitval(f,&p->val,(t&NU)|UNSIGNED);
     }
@@ -1981,7 +2044,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
   }
   for(c=1;c<=MAXR;c++) regs[c]=(regsa[c]==REGSA_NEVER)?1:0;
   for(c=1;c<=MAXR;c++){
-    if(regscratch[c]&&(regsa[c]||regused[c])){
+    if((regsa[c]==REGSA_NEVER||regused[c])){
       BSET(regs_modified,c);
     }
   }
@@ -2011,6 +2074,8 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
   loff=zm2l(offset)+t;
   function_top(f,v,loff);
   stackoffset=notpopped=dontpop=maxpushed=0;
+  if(!v->fi) v->fi=new_fi();
+  v->fi->flags|=ALL_REGS;
   for(p=fp;p;pr(f,p),p=p->next){
     c=p->code;t=p->typf;
     if(debug_info)
@@ -2029,7 +2094,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
     }
     if(notpopped&&!dontpop){
       int flag=0;
-      if(c==LABEL||c==COMPARE||c==TEST||c==BRA){
+      if(c==LABEL||c==COMPARE||c==TEST||(c>=BEQ&&c<=BRA)){
 	gen_pop(f,notpopped);
 	notpopped=0;
       }
@@ -2067,7 +2132,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
       ierror(0);
     }
 
-    if(c==CONVERT&&ISLWORD(t)&&ISLWORD(p->typf2)){
+    if(c==CONVERT&&ISLWORD(t)&&ISINT(t)&&ISLWORD(p->typf2)&&ISINT(p->typf2)){
       p->code=c=ASSIGN;
       p->q2.val.vmax=l2zm(4L);
     }
@@ -2094,7 +2159,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 
 
 
-    if((c==ASSIGN||c==PUSH)&&zmeqto(p->q2.val.vmax,l2zm(4L)))
+    if((c==ASSIGN||c==PUSH)&&zmeqto(p->q2.val.vmax,l2zm(4L))&&ISINT(t))
       p->typf=t=LONG;
 
     preload(f,p);
@@ -2301,10 +2366,11 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	  emit(f,"\tpshd\n");
 	  emit(f,"\tpshx\n");
 	}else{
-	  //emit(f,"\tpshs\ta,b,x\n");
+	  /*emit(f,"\tpshs\ta,b,x\n");*/
 	  emit(f,"\tpshs\tb,a\n");
 	  emit(f,"\tpshs\tx\n");
 	}
+	dontpop += 4;
 	push(4);
 	continue;
       }
@@ -2771,7 +2837,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	  else
 	    emit(f,"\tld%c\t,%s\n\tst%c\t,%s\n",size==2?'d':'b',regnames[qr],size==2?'d':'b',regnames[zr]);
 	}else{
-	  int l=++label,cnt=(int)(optsize?size:size/8);
+	  int l=++label,cnt=(int)(optsize?(CPU==6812?size:(size/2)):size/8);
 	  if(regs[acc]&&!scratchreg(acc,p)){
 	    if(c==PUSH)
 	      emit(f,"\tst%c\t%ld,%s\n",(CPU!=6812&&cnt<=255)?'b':'d',loff-roff-6-stackoffset,regnames[sp]);
@@ -2803,7 +2869,8 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	  emit(f,"%s%d:\n",labprefix,l);
 	  if(CPU==6812){
 	    if(optsize){
-	      emit(f,"\tmovb\t2,%s+,2,%s+\n",regnames[qr],regnames[zr]);
+	      emit(f,"\tmovb\t1,%s+,1,%s+\n",regnames[qr],regnames[zr]);
+	      size=0;
 	    }else{
 	      emit(f,"\tmovw\t2,%s+,2,%s+\n",regnames[qr],regnames[zr]);
 	      emit(f,"\tmovw\t2,%s+,2,%s+\n",regnames[qr],regnames[zr]);
@@ -2814,7 +2881,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	    emit(f,"\tdbne\td,%s%d\n",labprefix,l);
 	  }else{
 	    if(optsize){
-	      emit(f,"\tld%s\t,%s+\n\tst%s\t,%s+\n",regnames[cr],regnames[qr],regnames[cr],regnames[zr]);
+	      emit(f,"\tld%s\t,%s++\n\tst%s\t,%s++\n",regnames[cr],regnames[qr],regnames[cr],regnames[zr]);
 	      size&=1;
 	    }else{
 	      emit(f,"\tld%s\t,%s++\n\tst%s\t,%s++\n",regnames[cr],regnames[qr],regnames[cr],regnames[zr]);
@@ -3381,7 +3448,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 		if((t&NQ)==CHAR)
 		  emit(f,"\tlsrb\n");
 		else
-		  emit(f,CPU==6809?"\tlsra\n\trorb\n":"\tlsrd\n");
+		  emit(f,CPU!=6812?"\tlsra\n\trorb\n":"\tlsrd\n");
 	      }else{
 		if(oldl>8||(t&NQ)==CHAR)
 		  emit(f,"\tasrb\n");
@@ -3392,7 +3459,7 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	      if((t&NQ)==CHAR)
 		emit(f,"\taslb\n");
 	      else
-		emit(f,CPU==6809?"\taslb\n\trola\n":"\tasld\n");
+		emit(f,CPU!=6812?"\taslb\n\trola\n":"\tasld\n");
 	    }
 	  }
 	}else{
@@ -3402,15 +3469,59 @@ void gen_code(FILE *f,struct IC *fp,struct Var *v,zmax offset)
 	    push(2);px=1;
 	  }else
 	    px=0;
-	  if((p->typf2&NQ)==CHAR){
-	    load_reg(f,acc,&p->q2,p->typf2);
-	    emit(f,(p->typf2&UNSIGNED)?"\tclra\n":SEX);
-	    emit(f,"\ttfr\td,x\n");
-	  }else
-	    load_reg(f,ix,&p->q2,t);
-	  load_reg(f,acc,&p->q1,p->typf);
-	  if((t&NQ)==CHAR)
-	    emit(f,(p->typf2&UNSIGNED)?"\tclra\n":SEX);
+
+	  /* tell if X or D are ready for shifting */
+	  int xdone = 0; 
+	  int ddone = 0;
+
+	  /* free X if q1 is in X */
+	  if (ISRX(q1)) {
+	    ddone = 1;
+	    if (ISRACC(q2)) {
+	      xdone = 1;
+	      if (ISCHAR(p->typf2)) emit(f, EXTEND(p->typf2));
+	      emit(f, "\texg\tx,d\n");
+	    }
+	    else {
+	      emit(f, "\ttfr\tx,d\n");
+	    }
+	  }
+	  /* load q2 in X if not done yet */
+	  if (!xdone) {
+	    if (ISLWORD(p->typf2)) {
+	      /* q2 is 32bit, it is in memory, we take the lower 16bit */
+	      inc_addr(&p->q2, 2, p->typf2);
+	      load_reg(f, ix, &p->q2, INT);
+	    }
+	    else if (ISHWORD(p->typf2)) {
+	      /* q2 is 16bit, load it directly in X */
+	      load_reg(f, ix, &p->q2, INT);
+	    }
+	    else {
+	      /* q2 is 8bit, we must extend it in D */
+	      /* if D is busy with q1, save q1 in X */
+	      if (ddone || ISRACC(q1)) {
+		if (ISCHAR(t)) emit(f, EXTEND(t));
+		emit(f, "\ttfr\td,x\n");
+		load_reg(f, acc, &p->q2, CHAR);
+		emit(f, EXTEND(p->typf2));
+		emit(f, "\texg\tx,d\n");
+		ddone = 1;
+	      }
+	      else {
+		load_reg(f, acc, &p->q2, CHAR);
+		emit(f, EXTEND(p->typf2));
+		emit(f, "\ttfr\td,x\n");
+	      }
+	    }
+	  }
+	  /* load q1 in D if not done yet */
+	  if (!ddone) {
+	    load_reg(f, acc, &p->q1, t);
+	    if (ISCHAR(t)) emit(f, EXTEND(t));
+	  }
+
+
 	  if(c==LSHIFT) s="lsl";
 	  else if(t&UNSIGNED) s="lsr";
 	  else s="asr";
