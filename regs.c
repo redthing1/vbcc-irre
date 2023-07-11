@@ -1,4 +1,4 @@
-/*  $VER: vbcc (regs.c) $Revision: 1.16 $   */
+/*  $VER: vbcc (regs.c) $Revision: 1.31 $   */
 /*  Registerzuteilung           */
 
 #include "opt.h"
@@ -19,6 +19,7 @@ int *rvlist;
 static int const_vars;
 
 static bvtype bregs[BVSIZE(MAXR+1)/sizeof(bvtype)];
+static bvtype bregsm[BVSIZE(MAXR+1)/sizeof(bvtype)];
 
 Var *lparms[MAXR+1];
 
@@ -62,9 +63,12 @@ int entry_load(flowgraph *fg,int i)
 /*  werden muss, d.h. ein Vorgaenger sie nicht im selben Register hat.      */
 {
     flowlist *lp;
+    Var *v=fg->regv[i];
+    int vi=v->index;
     lp=fg->in;
+
     while(lp){
-        if(lp->graph&&lp->graph->regv[i]!=fg->regv[i]&&(fg->regv[i]->index>=vcount-rcount||BTST(lp->graph->av_out,fg->regv[i]->index))) return 1;
+        if(lp->graph&&lp->graph->regv[i]!=v&&(vi>=vcount-rcount||BTST(lp->graph->av_out,vi))) return 1;
         lp=lp->next;
     }
     return 0;
@@ -181,29 +185,33 @@ static int check_retreg(flowgraph *fg)
 void insert_regs(flowgraph *fg1)
 /*  Fuegt Registervariablen in die ICs ein.                             */
 {
-    int i;IC *p,*lic=0,*new;flowgraph *lfg=0,*fg;
+  int i,exit_block;IC *p,*lic=0,*new;flowgraph *lfg=0,*fg;
     if(DEBUG&9216) printf("inserting register variables\n");
     fg=fg1;
     while(fg){
         if(DEBUG&8192) printf("block %d:\n",fg->index);
+	if(fg!=fg1&&!fg->branchout&&!fg->normalout&&fg->start==fg->end)
+	  exit_block=1;
+	else
+	  exit_block=0;
         p=fg->start;
         while(p){
             for(i=1;i<=MAXR;i++){
                 if(!fg->regv[i]) continue;
                 if(p->code==ALLOCREG&&p->q1.reg==i) ierror(0);
-                if((p->q1.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->q1.v==fg->regv[i]){
+                if((p->q1.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->q1.v==fg->regv[i]&&(p->q1.v->index<vcount-rcount||cost_savings(p,i,&p->q1)>0)){
 		    if(p->q1.v->index>=vcount-rcount)
 		      p->q1.flags&=~(KONST|VAR|VARADR);
 		    p->q1.flags|=REG;
                     p->q1.reg=i;
                 }
-                if((p->q2.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->q2.v==fg->regv[i]){
+                if((p->q2.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->q2.v==fg->regv[i]&&(p->q2.v->index<vcount-rcount||cost_savings(p,i,&p->q2)>0)){
 		    if(p->q2.v->index>=vcount-rcount)
 		      p->q2.flags&=~(KONST|VAR|VARADR);
 		    p->q2.flags|=REG;
                     p->q2.reg=i;
                 }
-                if((p->z.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->z.v==fg->regv[i]){
+                if((p->z.flags&(VAR|REG|DONTREGISTERIZE))==VAR&&p->z.v==fg->regv[i]&&(p->z.v->index<vcount-rcount||cost_savings(p,i,&p->z)>0)){
 		  if(p->z.v->index>=vcount-rcount)
 		    p->z.flags&=~(KONST|VAR|VARADR);
 		  p->z.flags|=REG;
@@ -224,7 +232,7 @@ void insert_regs(flowgraph *fg1)
             if(p==fg->end) break;
             p=p->next;
         }
-        if(fg->start&&fg->start->code==LABEL) lic=fg->start;
+        if(fg->start&&fg->start->code==LABEL&&fg!=fg1) lic=fg->start;
         for(i=1;i<=MAXR;i++){
             if(fg->regv[i]){
                 if(DEBUG&8192){
@@ -297,9 +305,8 @@ void insert_regs(flowgraph *fg1)
                     }
                 }
                 if(fg->regv[i]->index>=vcount-rcount||BTST(fg->av_in,fg->regv[i]->index)){
-                    if((fg==fg1||entry_load(fg,i))&&(fg!=fg1||!(fg->regv[i]->flags&REGPARM))){
+		  if(!exit_block&&(fg==fg1||entry_load(fg,i))&&(fg!=fg1||!(fg->regv[i]->flags&REGPARM))){
                         if(DEBUG&8192) printf("\thave to load it at start of block\n");
-
                         new=new_IC();
                         new->line=0;
                         new->file=0;
@@ -438,8 +445,8 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	      if(r==pr)
 		savings[i][r]+=cost_save_reg(r,vilist[i]);
 	      else
-		/*savings[i][r]+=(cost_save_reg(r,vilist[i])-cost_move_reg(pr,r));*/ /* load_parms is less efficient */
-		savings[i][r]-=cost_load_reg(r,vilist[i]);
+		/* factor of 2, because load_parms is not always optimal */
+		savings[i][r]+=(cost_save_reg(r,vilist[i])-cost_move_reg(pr,r))/2;
 	    }
 	  }
 	}
@@ -468,6 +475,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
       lend=g->loopend;
       if(lend&&iterations==1&&!optsize) iterations=4;
     }
+
     /*  Wenn das Register in dem Block benutzt wird, muss man es retten */
     for(r=1;r<=MAXR;r++){
       if(BTST(g->regused,r)||(reg_pair(r,&rp)&&(BTST(g->regused,rp.r1)||BTST(g->regused,rp.r2)))){
@@ -551,7 +559,7 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
 	  for(i=0;i<vcount-rcount+const_vars;i++){
 	    if(i>=vcount-rcount||BTST(isused,i)){
 	      for(r=1;r<=MAXR;r++){
-		if(savings[i][r]!=INT_MIN&&BTST(p->q1.v->fi->regs_modified,r))
+		if(regscratch[r]&&savings[i][r]!=INT_MIN&&BTST(p->q1.v->fi->regs_modified,r))
 		  savings[i][r]-=iterations*(cost_load_reg(r,vilist[i])+cost_save_reg(r,vilist[i]));
 	      }
 	    }	  
@@ -590,8 +598,8 @@ void do_loop_regs(flowgraph *start,flowgraph *end,int intask)
     }else{
       int one=0;
       for(r=1;r<=MAXR;r++){
-	/*  Falls Variable in best. Register muss.  */
-	if(r==abs(v->reg)&&!(v->flags&REGPARM)) savings[i][r]=INT_MAX;
+	/*  Variables should have been put to argument registers by local_regs()  */
+	/*if(r==abs(v->reg)&&!(v->flags&REGPARM)) savings[i][r]=INT_MAX;*/
 	if(regsa[r]||!regok(r,t,-1)) savings[i][r]=INT_MIN;
 	if(savings[i][r]>m){
 	  m=savings[i][r];
@@ -918,6 +926,9 @@ static Var *add_const_var(obj *o,int t)
   v->identifier=" constant";
   v->flags=0;
   v->reg=0;
+#ifdef HAVE_TARGET_ATTRIBUTES
+  v->tattr=0;
+#endif
   cidx++;
   v->offset=l2zm(cidx);
   if(last_const){
@@ -1117,6 +1128,7 @@ void local_combine(flowgraph *fg)
     for(p=fg->end;p;){
       if(p->code==NOP||(!p->q1.flags&&!p->q2.flags)){
 	if(p==fg->start) break;
+	if(p->z.flags&VAR) BSET(used,p->z.v->index);
 	p=p->prev;
 	continue;
       }
@@ -1245,6 +1257,7 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
 {
   int r,used,tmp,savings[MAXR+1]={0};
   IC *p=fp;
+
   if(v->reg&&!*v->identifier)
     return abs(v->reg);
   if(v->vtyp->flags&VOLATILE)
@@ -1289,7 +1302,7 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
 	if(p->z.v==v)
 	  return abs(p->z.v->reg);
 	else
-	  savings[p->z.v->reg]=INT_MIN;
+	  savings[abs(p->z.v->reg)]=INT_MIN;
       }
     }
     used=0;
@@ -1338,7 +1351,7 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
     if(p->code==CALL){
       if((p->q1.flags&(VAR|DREFOBJ))==VAR&&p->q1.v->fi&&(p->q1.v->fi->flags&ALL_REGS)&&!(disable&2048)){
 	for(r=1;r<=MAXR;r++){
-	  if(BTST(p->q1.v->fi->regs_modified,r))
+	  if(regscratch[r]&&BTST(p->q1.v->fi->regs_modified,r))
 	    savings[r]=INT_MIN;
 	}
       }else{
@@ -1352,7 +1365,7 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
     /* check for register arguments */
     if((p->z.flags&(VAR|DREFOBJ))==VAR&&!*p->z.v->identifier&&p->z.v->reg){
       if(p->code==ASSIGN&&(p->q1.flags&(VAR|DREFOBJ))==VAR&&p->q1.v==v){
-	savings[p->z.v->reg]++;
+	savings[abs(p->z.v->reg)]++;
       }else{
 	savings[abs(p->z.v->reg)]=INT_MIN;
 	if(reg_pair(abs(p->z.v->reg),&rp)){
@@ -1372,19 +1385,128 @@ int find_best_local_reg(IC *fp,Var *v,int preferred)
     }else if(savings[tmp]==savings[r]){
       if(reg_prio[tmp]>reg_prio[r])
 	r=tmp;
-      else if(BTST(bregs,r)&&!BTST(bregs,tmp))
-	/* if equal, prefer to leave registers used by parameters */
-	r=tmp;
+      else if(reg_prio[tmp]==reg_prio[r]){
+	if(regscratch[tmp]&&!regscratch[r])
+	  r=tmp;
+	else if(regscratch[tmp]==regscratch[r]&&BTST(bregs,r)&&!BTST(bregs,tmp))
+	  /* if equal, prefer to leave registers used by parameters */
+	  r=tmp;
+      }
     }
   }
   return r;
 }
+
+static bvtype *late_changes;
+
+void search_late_opt(flowgraph *fg,IC *n,obj *o)
+{
+  Var *v=o->v;
+  IC *p=n->prev,*cp;
+  if(!zmeqto(o->val.vmax,Z0)) return;
+  if(o->v->reg!=0) return;
+  while(1){
+    if(!p) ierror(0);
+    if(p->code==LABEL) ierror(0);
+    if((p->q1.flags&VAR)&&p->q1.v==v) return;
+    if((p->q2.flags&VAR)&&p->q2.v==v) return;
+    if((p->z.flags&VAR)&&p->z.v==v){
+      if(p->z.flags&DREFOBJ) return;
+      if(p->code==CONVERT&&!must_convert(p->typf,p->typf2,0)){
+	int ucnt=0;
+	if((p->q1.flags&DREFOBJ)&&(o->flags&DREFOBJ)) return;
+	if(p->q1.flags&VARADR) return;
+	if((n->q1.flags&VAR)&&n->q1.v==o->v) ucnt++;
+	if((n->q2.flags&VAR)&&n->q2.v==o->v) ucnt++;
+	if((n->z.flags&(VAR|DREFOBJ))==(VAR|DREFOBJ)&&n->q1.v==o->v) ucnt++;
+	if(ucnt!=1) return;
+	memset(late_changes,vsize,0);
+	if((p->q1.flags&(VAR|VARADR))==VAR){
+	  int i=p->q1.v->index;
+	  if(p->q1.flags&DREFOBJ) i+=vcount-rcount;
+	  for(cp=p;cp&&cp!=n;cp=cp->next){
+	    ic_changes(cp,late_changes);
+	    if(BTST(late_changes,i)) return;
+	  }
+	}
+	if(DEBUG&1024){printf("removing CONVERT (!must_convert)\n");pric2(stdout,p);pric2(stdout,n);}
+	o->v=p->q1.v;
+	o->val.vmax=p->q1.val.vmax;
+	if(p->q1.flags&DREFOBJ){
+	  o->flags|=DREFOBJ;
+	  o->dtyp=p->q1.dtyp;
+	}
+	n->use_list=myrealloc(n->use_list,VLS*(n->use_cnt+p->use_cnt));
+	memcpy(&n->use_list[n->use_cnt],&p->use_list[0],p->use_cnt*VLS);
+	n->use_cnt+=p->use_cnt;
+	remove_IC_fg(fg,p);
+      }
+#if 0/* BIGENDIAN||LITTLEENDIAN*/
+      if(p->code==CONVERT&&ISINT(p->typf)&&ISINT(p->typf2)&&(p->typf&NQ)<=(p->typf2&NQ)){
+	if((p->q1.flags&DREFOBJ)&&(o->flags&DREFOBJ)) return;
+	if(DEBUG&1024){printf("removing CONVERT (int=>smallint)\n");pric2(stdout,p);pric2(stdout,n);}
+	o->v=p->q1.v;
+	o->val.vmax=p->q1.val.vmax;
+	if(p->q1.flags&DREFOBJ){
+	  o->flags|=DREFOBJ;
+	  o->dtyp=p->q1.dtyp;
+	}
+#if BIGENDIAN
+	o->val.vmax=zmadd(o->val.vmax,zmsub(sizetab[p->typf2&NQ],sizetab[p->typf&NQ]));
+#endif
+	remove_IC_fg(fg,p);
+      }
+#endif
+      return;
+    }
+    if(p==fg->start) {pric2(stdout,n);ierror(0);}
+    p=p->prev;
+  }
+}
+
+
+void late_opt(flowgraph *fg)
+{
+  IC *p;int j;bvtype *isused;
+  isused=mymalloc(vsize);
+  late_changes=mymalloc(vsize);
+  while(fg){
+    if(DEBUG&1024) printf("late opt pass block %d\n",fg->index);
+    memcpy(isused,fg->av_out,vsize);
+    for(p=fg->end;p;p=p->prev){
+      if(p->code!=NOP&&p->code!=ADDRESS&&(p->q1.flags&(VAR|VARADR))==VAR){
+	j=p->q1.v->index;
+	if(BTST(fg->av_kill,j)&&!BTST(fg->av_out,j)&&!BTST(isused,j))
+	  search_late_opt(fg,p,&p->q1);
+      }
+      if(p->code!=NOP&&(p->q2.flags&(VAR|VARADR))==VAR){
+	j=p->q2.v->index;
+	if(BTST(fg->av_kill,j)&&!BTST(fg->av_out,j)&&!BTST(isused,j))
+	  search_late_opt(fg,p,&p->q2);
+      }
+      if((p->z.flags&(VAR|DREFOBJ))==(VAR|DREFOBJ)){
+	j=p->z.v->index;
+	if(BTST(fg->av_kill,j)&&!BTST(fg->av_out,j)&&!BTST(isused,j))
+	  search_late_opt(fg,p,&p->z);
+      }
+      if(p==fg->start) break;
+      if(p->change_cnt||p->use_cnt)
+	av_update(p,isused);
+    }
+    fg=fg->normalout;
+  }
+  free(isused);
+  free(late_changes);
+}
+
 void local_regs(flowgraph *fg)
 /*  versucht Variablen, die nur innerhalb eines Basic Blocks benutzt    */
 /*  werden (kill==true und out==false), Register zuzuweisen.            */
 {
   IC *p;
   int i,j,t,r,nr,mustalloc,savings,prio,nr1,nr2;
+  late_opt(fg);
+  if(DEBUG&1024) print_flowgraph(fg);
   bvtype *inmem=mymalloc(vsize);
   if(DEBUG&9216) printf("assigning temporary variables to registers\n");
   memset(inmem,0,vsize);
@@ -1392,10 +1514,11 @@ void local_regs(flowgraph *fg)
   for(i=0;i<=MAXR;i++) lparms[i]=0;
   /* mark registers used by parameters */
   for(p=first_ic;p;p=p->next){
-    if((p->q1.flags&VAR)&&p->q1.v->reg) BSET(bregs,p->q1.v->reg);
-    if((p->q2.flags&VAR)&&p->q2.v->reg) BSET(bregs,p->q2.v->reg);
-    if((p->z.flags&VAR)&&p->z.v->reg) BSET(bregs,p->z.v->reg);
+    if((p->q1.flags&VAR)&&p->q1.v->reg) BSET(bregs,abs(p->q1.v->reg));
+    if((p->q2.flags&VAR)&&p->q2.v->reg) BSET(bregs,abs(p->q2.v->reg));
+    if((p->z.flags&VAR)&&p->z.v->reg) BSET(bregs,abs(p->z.v->reg));
   }
+  memcpy(bregsm,bregs,sizeof(bregs));
   lfg=fg;
   while(lfg){
     if(DEBUG&1024) printf("block %d\n",lfg->index);
@@ -1403,6 +1526,12 @@ void local_regs(flowgraph *fg)
     memset(&lfg->regused,0,RSIZE);
     lfg->calls=0;
     //    if(lfg==fg&&!lfg->in) is_header=1; else is_header=0;
+    /* unmark registers used as register arguments */
+    memcpy(bregs,bregsm,sizeof(bregs));
+    for(p=lfg->start;p;p=p->next){
+      if((p->z.flags&VAR)&&!*p->z.v->identifier&&p->z.v->reg!=0) BCLR(bregs,abs(p->z.v->reg));
+      if(p==lfg->end) break;
+    }
     p=lfg->end;
     while(p){
       nr=nr1=nr2=0;
@@ -1425,6 +1554,28 @@ void local_regs(flowgraph *fg)
 	if(replace_local_reg(&p->q1)==nr) mustalloc=0;
 	if(replace_local_reg(&p->q2)==nr) mustalloc=0;
       }
+      if((p->q1.flags&(VAR|REG|VARADR))==VAR&&!(p->q1.v->flags&USEDASADR)&&(!(p->q1.v->vtyp->flags&VOLATILE)||p->q1.v->reg)&&(p->q1.v->storage_class==AUTO||p->q1.v->storage_class==REGISTER)){
+	j=p->q1.v->index;
+	if((BTST(lfg->av_kill,j)||is_header)&&!BTST(lfg->av_out,j)&&!BTST(inmem,j)){
+	  r=find_best_local_reg(p,p->q1.v,nr);
+	  if(r){
+	    if(r!=nr) 
+	      insert_allocreg(lfg,p,FREEREG,r);
+	    else
+	      mustalloc=0;
+	    lregv[r]=p->q1.v;regused[r]=regu[r]=1;
+	    if(reg_pair(r,&rp)){
+	      regu[rp.r1]=regu[rp.r2]=1;
+	      regused[rp.r1]=regused[rp.r2]=1;
+	    }
+	    if(replace_local_reg(&p->q1)!=r) ierror(0);
+	    replace_local_reg(&p->q2);
+	    replace_local_reg(&p->z);
+	    if((DEBUG&9216)&&*p->q1.v->identifier) printf("temporary <%s> assigned to %s (v3)\n",p->q1.v->identifier,regnames[r]);
+	    if(DEBUG&8192) printf("temporary <%s>(%p) assigned to %s (v3)\n",p->q1.v->identifier,(void *)p->q1.v,regnames[r]);
+	  }else BSET(inmem,j);
+	}
+      }
       /*  hier wegen USEQ2ASZ aufpassen; kommutative ICs sollten so   */
       /*  angeordnet werden, dass ein evtl. Register rechts steht     */
       if((p->q2.flags&(VAR|REG|VARADR))==VAR&&!(p->q2.v->flags&USEDASADR)&&!(p->q2.v->vtyp->flags&VOLATILE)&&(p->q2.v->storage_class==AUTO||p->q2.v->storage_class==REGISTER)){
@@ -1440,7 +1591,6 @@ void local_regs(flowgraph *fg)
 	      regused[rp.r1]=regused[rp.r2]=1;
 	    }
 	    if(replace_local_reg(&p->q2)!=r) ierror(0);
-	    replace_local_reg(&p->q1);
 	    replace_local_reg(&p->z);
 	    if((DEBUG&9216)&&*p->q2.v->identifier) printf("temporary <%s> assigned to %s (v1)\n",p->q2.v->identifier,regnames[r]);
 	    if(DEBUG&8192) printf("temporary <%s>(%p) assigned to %s (v1)\n",p->q2.v->identifier,(void *)p->q2.v,regnames[r]);
@@ -1461,29 +1611,8 @@ void local_regs(flowgraph *fg)
 	    if(replace_local_reg(&p->z)!=r){
 	      for(i=1;i<=MAXR;i++) if(lregv[i]) printf("%d:%s=%s(%p)\n",i,regnames[i],lregv[i]->identifier,(void*)lregv[i]);
 	      ierror(r);}
-	    replace_local_reg(&p->q1);
 	    if((DEBUG&9216)&&*p->z.v->identifier) printf("temporary <%s> assigned to %s (v2)\n",p->z.v->identifier,regnames[r]);
 	    if(DEBUG&8192) printf("temporary <%s>(%p) assigned to %s (v2)\n",p->z.v->identifier,(void *)p->z.v,regnames[r]);
-	  }else BSET(inmem,j);
-	}
-      }
-      if((p->q1.flags&(VAR|REG|VARADR))==VAR&&!(p->q1.v->flags&USEDASADR)&&(!(p->q1.v->vtyp->flags&VOLATILE)||p->q1.v->reg)&&(p->q1.v->storage_class==AUTO||p->q1.v->storage_class==REGISTER)){
-	j=p->q1.v->index;
-	if((BTST(lfg->av_kill,j)||is_header)&&!BTST(lfg->av_out,j)&&!BTST(inmem,j)){
-	  r=find_best_local_reg(p,p->q1.v,nr);
-	  if(r){
-	    if(r!=nr) 
-	      insert_allocreg(lfg,p,FREEREG,r);
-	    else
-	      mustalloc=0;
-	    lregv[r]=p->q1.v;regused[r]=regu[r]=1;
-	    if(reg_pair(r,&rp)){
-	      regu[rp.r1]=regu[rp.r2]=1;
-	      regused[rp.r1]=regused[rp.r2]=1;
-	    }
-	    if(replace_local_reg(&p->q1)!=r) ierror(0);
-	    if((DEBUG&9216)&&*p->q1.v->identifier) printf("temporary <%s> assigned to %s (v3)\n",p->q1.v->identifier,regnames[r]);
-	    if(DEBUG&8192) printf("temporary <%s>(%p) assigned to %s (v3)\n",p->q1.v->identifier,(void *)p->q1.v,regnames[r]);
 	  }else BSET(inmem,j);
 	}
       }
@@ -1548,7 +1677,7 @@ void insert_saves(flowgraph *fg)
 	  i=0;
 	  if((v=fg->regv[r])&&(v->index>=vcount-rcount||BTST(isused,v->index))){
 	    if((p->q1.flags&(VAR|DREFOBJ))==VAR&&p->q1.v->fi&&(p->q1.v->fi->flags&ALL_REGS)&&!(disable&2048)){
-	      if(BTST(p->q1.v->fi->regs_modified,r)) i=1;
+	      if(regscratch[r]&&BTST(p->q1.v->fi->regs_modified,r)) i=1;
 	    }else{
 	      if(regscratch[r]) i=1;
 	    }
@@ -1858,7 +1987,7 @@ void simple_regs(void)
   if(!first_ic) return;
   for(i=1;i<=MAXR;i++) regsv[i]=0;
   for(i2=0;i2<=MAXR*4;i2++){
-    int only_best,pointertype;
+    int only_best,pointertype=0;
     if(i2<=MAXR*2){i=i2;only_best=1;} else {i=i2/2;pointertype=only_best=0;}
     if(i<=MAXR&&regsv[i]) continue;
     if(i>MAXR&&regsv[i-MAXR]) continue;

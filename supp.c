@@ -1,4 +1,4 @@
-/*  $VER: vbcc (supp.c) $Revision: 1.44 $     */
+/*  $VER: vbcc (supp.c) $Revision: 1.49 $     */
 
 #include "supp.h"
 #include "opt.h"
@@ -90,6 +90,7 @@ int misracheck,misraversion,misracomma,misratok;
 int pack_align;
 int short_push;
 int default_unsigned;
+Var *add_attr_haddecl;
 
 char *emit_buffer[EMIT_BUF_DEPTH];
 char *emit_p;
@@ -1473,7 +1474,7 @@ case_table *calc_case_table(IC *p,double min_density)
     max.vmax=t_min(MAXINT);
     min.vmax=t_max(MAXINT);
   }
-  while(p&&p->code==COMPARE&&(p->q2.flags&KONST)&&p->typf==t&&!compare_objs(o,&p->q1,t)){
+  while(p&&p->code==COMPARE&&(p->q2.flags&KONST)&&p->typf==t&&objs_equal(o,&p->q1,t)){
     zumax zum;zmax zm;
     if(multiple_ccs) ccr=&p->z;
     if(num>=cur_size){
@@ -1489,7 +1490,7 @@ case_table *calc_case_table(IC *p,double min_density)
     vals[num]=p->q2.val;
     p=p->next;
     while(p&&(p->code==NOP||p->code==ALLOCREG||p->code==FREEREG)) p=p->next;
-    if(p->code!=BEQ||(multiple_ccs&&compare_objs(ccr,&p->q1,0))) break;
+    if(p->code!=BEQ||(multiple_ccs&&!objs_equal(ccr,&p->q1,0))) break;
     labels[num]=p->typf;
     p=p->next;
     while(p&&(p->code==NOP||p->code==ALLOCREG||p->code==FREEREG)) p=p->next;
@@ -1719,6 +1720,8 @@ void add_attr(char **attr,char *new)
 {
   int ln,lo;
   if(!new) return;
+  if(*attr&&strstr(*attr,new)) return;
+  if(add_attr_haddecl&&(!*attr||!strstr(*attr,new))) error(371,add_attr_haddecl->identifier,new);
   ln=strlen(new);
   if(*attr){
     lo=strlen(*attr);
@@ -1807,6 +1810,23 @@ void STRBACK(unsigned char *p)
   }
 }
 #endif
+
+int objs_equal(obj *o1,obj *o2,int t)
+/*  Vergleicht die beiden Objekte; liefert 1, wenn sie gleich sind, sonst 0 */
+{
+    int i1,i2;
+    i1=o1->flags&~SCRATCH;i2=o2->flags&~SCRATCH;
+    if(i1!=i2) return 0;
+    if(i1&DREFOBJ){
+      if(o1->dtyp!=o2->dtyp) return 0;
+    }
+    if(i1&KONST) return(!compare_const(&o1->val,&o2->val,t));
+    if(i1&VAR){
+      if(o1->v!=o2->v) return 0;
+      if(!zmeqto(o1->val.vmax,o2->val.vmax)) return 0;
+    }
+    return 1;
+}
 
 
 #ifdef HAVE_MISRA

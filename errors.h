@@ -224,7 +224,7 @@
 "'...' only allowed with prototypes",WARNING|ANSIV,
 "Hey, do you really know the priority of '&&' vs. '||'?",WARNING|DONTWARN,
 "be careful with priorities of <</>> vs. +/-",WARNING,
-"adress of auto variable returned",WARNING,
+"address of auto variable returned",WARNING,
 "void function returns a void expression",WARNING,                  /*  225 */
 "redeclaration of typedef <%s>",WARNING|ANSIV,
 "multiple specification of attribute \"%s\"",WARNING,
@@ -368,3 +368,7 @@
 "missing identifier",ERROR|FATAL|ANSIV,                            /* 365 */
 "negative shift count is undefined",WARNING,
 "shift count too large for data type",WARNING,
+"redeclaration of function argument with different register",WARNING,
+"declaration expected",WARNING|ANSIV,
+"possible redeclaration of var <%s> with different attributes <%s> and <%s>",WARNING, /* 370 */
+"redeclaration of var <%s> with new attribute <%s>",WARNING,

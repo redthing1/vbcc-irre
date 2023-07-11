@@ -685,6 +685,7 @@ int init_cg(void)
   declare_builtin("__orll",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__eorll",LLONG,LLONG,0,LLONG,0,1,0);
   declare_builtin("__negll",LLONG,LLONG,0,0,0,1,0);
+  declare_builtin("__notll",LLONG,LLONG,0,0,0,1,0);
   declare_builtin("__lslll",LLONG,LLONG,0,INT,0,1,0);
 
   declare_builtin("__divll",LLONG,LLONG,0,LLONG,0,1,0);

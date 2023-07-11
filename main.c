@@ -1,4 +1,4 @@
-/*  $VER: vbcc (main.c) $Revision: 1.60 $    */
+/*  $VER: vbcc (main.c) $Revision: 1.67 $    */
 #include "vbcc_cpp.h"
 #include "vbc.h"
 #include "opt.h"
@@ -72,8 +72,9 @@ void translation_unit(void)
     killsp();
     if(eof||ctok->type!=NAME){
       if(!eof){
-	error(0);
-	raus();
+	error(369);
+	next_token();
+	continue;
       }else{
 	if(cross_module){
 	  int n=0;
@@ -661,6 +662,11 @@ int main(int argc,char *argv[])
   if(c_flags[61]&USEDFLAG) {force_statics=1;}
   if(c_flags[62]&USEDFLAG) {prefer_statics=1;}
   if(c_flags[63]&USEDFLAG) {range_opt=1;}
+  if(c_flags[64]&USEDFLAG) {merge_strings=1;}
+  if(c_flags[65]&USEDFLAG) {sec_per_obj=1;}
+  if(c_flags[66]&USEDFLAG) {no_eff_ics=1;}
+  if(c_flags[67]&USEDFLAG) {early_eff_ics=1;}
+  if(c_flags[68]&USEDFLAG) {mask_opt=1;}
 
 
   if(!(optflags&2)){

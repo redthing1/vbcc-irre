@@ -186,3 +186,6 @@ struct reg_handle {
 #define HAVE_WANTBNE 1
 
 #define HAVE_POF2OPT 1
+
+/* Use char for return of comparison libcalls */
+#define LIBCALL_CMPTYPE CHAR

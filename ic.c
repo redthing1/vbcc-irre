@@ -1,7 +1,10 @@
-/*  $VER: vbcc (ic.c) $Revision: 1.52 $  */
+/*  $VER: vbcc (ic.c) $Revision: 1.65 $  */
 
 #include "vbc.h"
 #include "opt.h"
+
+#define RNOSAVE 32 /* register does not have to be saved across call */
+#define RHALF   64 /* half of a register pair was already allocated */
 
 static char FILE_[]=__FILE__;
 
@@ -10,6 +13,8 @@ static unsigned int opushed;
 static int volatile_convert;
 
 int do_arith(np,IC *,np,obj *);
+static obj *postop_obj;
+static int postop_type;
 np gen_libcall(char *fname,np arg1,type *t1,np arg2,type *t2);
 
 static void handle_reglist(regargs_list *,obj *);
@@ -35,7 +40,7 @@ static char *use_libcall_wrap(int c,int t,int t2)
     return 0;
 
   if(c==PMULT) c=MULT;
-  if((c>=OR&&c<=XOR)||(c>=LSHIFT&&c<=KOMPLEMENT)||c==COMPARE||c==CONVERT||c==MINUS||c==TEST)
+  if((c>=OR&&c<=AND)||(c>=LSHIFT&&c<=KOMPLEMENT)||c==COMPARE||c==CONVERT||c==MINUS||c==TEST)
     return use_libcall(c,t,t2);
   return 0;
 }
@@ -511,9 +516,9 @@ void add_IC(IC *new)
         if(ISFLOAT(new->typf)) float_used=1;
         if(code==CONVERT&&ISFLOAT(new->typf2)) float_used=1;
     }
-    if((new->q1.flags&(SCRATCH|REG))==(SCRATCH|REG)&&(new->q1.reg!=new->z.reg||!(new->z.flags&REG)))
+    if((new->q1.flags&(SCRATCH|REG))==(SCRATCH|REG)&&(!(new->z.flags&REG)||new->q1.reg!=new->z.reg))
         free_reg(new->q1.reg);
-    if((new->q2.flags&(SCRATCH|REG))==(SCRATCH|REG)&&(new->q2.reg!=new->z.reg||!(new->z.flags&REG)))
+    if((new->q2.flags&(SCRATCH|REG))==(SCRATCH|REG)&&(!(new->z.flags&REG)||new->q2.reg!=new->z.reg))
         free_reg(new->q2.reg);
 }
 
@@ -535,7 +540,14 @@ np gen_libcall(char *fname,np arg1,type *t1,np arg2,type *t2)
   new->alist=0;
   if(arg1){
     al=mymalloc(sizeof(*al));
-    al->arg=arg1;
+    if(postop_obj){
+      al->arg=new_node();
+      al->arg->o=*postop_obj;
+      al->arg->ntyp=new_typ();
+      al->arg->ntyp->flags=postop_type;
+      al->arg->flags=REINTERPRET;
+    }else
+      al->arg=arg1;
     al->next=0;
     if(t1){
       np cnv=new_node();
@@ -579,8 +591,24 @@ void gen_IC(np p,int ltrue,int lfalse)
     if(!p) return;
 
     if(p->flags==STRING){
-        p->o.v=add_var(empty,clone_typ(p->ntyp),STATIC,p->cl);
-        p->o.v->flags|=DEFINED;
+        Var *v=0;
+	if(merge_strings){
+	  for(v=first_var[0];v;v=v->next){
+	    if(v->vtyp->flags==ARRAY&&(v->vtyp->next->flags&STRINGCONST)&&zmleq(p->ntyp->size,v->vtyp->size)){
+	      zmax i;const_list *cl1=p->cl,*cl2=v->clist;
+	      for(i=Z0;!zmleq(p->ntyp->size,i)&&cl1&&cl2;cl1=cl1->next,cl2=cl2->next,i=zmadd(i,Z1)){
+		if(!zumeqto(zuc2zum(cl1->other->val.vuchar),zuc2zum(cl2->other->val.vuchar)))
+		  break;
+	      }
+	      if(zmleq(p->ntyp->size,i)) break;
+	    }
+	  }
+	}
+	if(!v){
+	  p->o.v=add_var(empty,clone_typ(p->ntyp),STATIC,p->cl);
+	  p->o.v->flags|=DEFINED;
+	}else
+	  p->o.v=v;
         p->o.flags=VAR;
         p->o.reg=0;
         p->o.val=p->val;
@@ -786,7 +814,7 @@ void gen_IC(np p,int ltrue,int lfalse)
 	return;
       }
 #if HAVE_LIBCALLS
-      if(libname=use_libcall_wrap(p->right->flags,p->right->ntyp->flags,(p->right->flags==LSHIFT||p->right->flags==LSHIFT)?INT:0)){
+      if(libname=use_libcall_wrap(p->right->flags,p->right->ntyp->flags,(p->right->flags==LSHIFT||p->right->flags==RSHIFT)?INT:0)){
 	type *t1,*t2;
 	np a1;
 	gen_IC(p->left,0,0);
@@ -1005,13 +1033,17 @@ void gen_IC(np p,int ltrue,int lfalse)
       at=arith_typ(p->left->ntyp,p->right->ntyp);
       if(libname=use_libcall_wrap(COMPARE,at->flags,0)){
 	new->q1=gen_libcall(libname,p->left,at,p->right,clone_typ(at))->o;
-	new->code=TEST;
+	new->code=COMPARE;
 	new->typf=LIBCALL_CMPTYPE;
+	new->q2.flags=KONST;
+	gval.vmax=Z0;
+	eval_const(&gval,MAXINT);
+	insert_const(&new->q2.val,LIBCALL_CMPTYPE);
       }else{
 #endif
         new->code=COMPARE;
         tl=p->left->ntyp->flags&NU;tr=p->right->ntyp->flags&NU;
-        if(p->right->flags==CEXPR&&ISINT(tr)&&ISINT(tl)&&zm2l(sizetab[tl&NQ])<zm2l(sizetab[tr&NQ])&&shortcut(COMPARE,tl)){
+        if(p->right->flags==CEXPR&&ISINT(tr)&&ISINT(tl)&&zm2l(sizetab[tl&NQ])<=zm2l(sizetab[tr&NQ])&&((tl&NQ)>=INT||shortcut(COMPARE,tl))){
 	  int negativ;
 	  eval_constn(p->right);
 	  if(zmleq(vmax,l2zm(0L))) negativ=1; else negativ=0;
@@ -1229,7 +1261,7 @@ void gen_IC(np p,int ltrue,int lfalse)
             /*  einige spezielle Inline-Funktionen; das setzt voraus, dass  */
             /*  diese in den Headerfiles passend deklariert werden          */
             if(v->storage_class==EXTERN){
-	        if((optflags&2)&&!strcmp(v->identifier,"strlen")&&p->alist&&p->alist->arg){
+	        if((optflags&2)&&(!strcmp(v->identifier,"strlen")||!strcmp(v->identifier,"__asm_strlen"))&&p->alist&&p->alist->arg){
                     np n=p->alist->arg;
                     if(n->flags==ADDRESSA&&n->left->flags==STRING&&zmeqto(n->left->val.vmax,l2zm(0L))){
                         const_list *cl;zumax len=ul2zum(0UL);
@@ -1250,7 +1282,7 @@ void gen_IC(np p,int ltrue,int lfalse)
                 }
 
                 if(inline_memcpy_sz>0&&(optflags&2)){
-                    if(!strcmp(v->identifier,"strcpy")&&p->alist&&p->alist->next&&p->alist->next->arg){
+		    if((!strcmp(v->identifier,"strcpy")||!strcmp(v->identifier,"__asm_strcpy"))&&p->alist&&p->alist->next&&p->alist->next->arg){
                         np n=p->alist->next->arg;
                         if(n->flags==ADDRESSA&&n->left->flags==STRING&&zmeqto(n->left->val.vmax,l2zm(0L))){
                             const_list *cl;zmax len=l2zm(0L);
@@ -1267,7 +1299,7 @@ void gen_IC(np p,int ltrue,int lfalse)
                             }
                         }
                     }
-                    if(!strcmp(v->identifier,"memcpy")){
+                    if(!strcmp(v->identifier,"memcpy")||!strcmp(v->identifier,"__asm_memcpy")){
                         if(p->alist&&p->alist->next&&p->alist->next->next
                            &&p->alist->next->next->arg
                            &&p->alist->next->next->arg->flags==CEXPR){
@@ -1285,7 +1317,7 @@ void gen_IC(np p,int ltrue,int lfalse)
         rl=0;
         if(!(optflags&2)){
           int r;
-          for(r=1;r<=MAXR;r++){mregs[r]=regs[r];regs[r]&=~32;}
+          for(r=1;r<=MAXR;r++){mregs[r]=regs[r];regs[r]&=~(RNOSAVE|RHALF);}
         }else{
 	  gen_IC(p->left,0,0);
 	}
@@ -1527,7 +1559,7 @@ void gen_IC(np p,int ltrue,int lfalse)
           int r;
           for(r=1;r<=MAXR;r++){
             if(regs[r])
-              regs[r]|=(mregs[r]&32);
+              regs[r]|=(mregs[r]&RNOSAVE);
           }
         }
         /*  Evtl. gespeicherte Registerargumente wiederherstellen.  */
@@ -1547,10 +1579,15 @@ void gen_IC(np p,int ltrue,int lfalse)
 	      new->q1.v=rl->v;
 	      new->q1.val.vmax=l2zm(0L);
 	      new->z.flags=REG;
-	      new->z.reg=abs(r);
+	      if(rl->rsaved)
+		new->z.reg=rl->rsaved;
+	      else
+		new->z.reg=abs(r);
 	      new->q2.flags=0;
 	      new->q2.val.vmax=regsize[r];
 	      add_IC(new);
+	      if(rl->rsaved)
+		free_reg(abs(rl->reg));
             }else{
 	      free_reg(abs(rl->reg));
 	    }
@@ -1614,6 +1651,8 @@ void gen_IC(np p,int ltrue,int lfalse)
             new->typf=p->ntyp->flags;
             new->q2.val.vmax=sizetab[p->ntyp->flags&NQ];
             new->q1=p->left->o;
+	    postop_obj=&new->q1;
+	    postop_type=new->typf;
             new->q1.flags&=~SCRATCH;
             get_scratch(&new->z,p->left->ntyp->flags,0,p->left->ntyp);
             new->q2.flags=0;
@@ -1689,6 +1728,7 @@ void gen_IC(np p,int ltrue,int lfalse)
             free_reg(p->left->o.reg);
         }
 
+	postop_obj=0;
         p->o=o;
         return;
     }
@@ -1989,6 +2029,7 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
     if(reg){
         /*  Parameteruebergabe in Register. */
         Var *v=0; type *t2;
+	int rsaved=0;
         if(optflags&2){
         /*  Version fuer Optimizer. */
             t2=new_typ();
@@ -2017,6 +2058,13 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
             return of;
         }else{
         /*  Nicht-optimierende Version. */
+
+	  if(DEBUG&16){
+	    printf("reg[%s]=%d ",regnames[reg],regs[reg]);
+	    if(reg_pair(reg,&rp))
+	      printf("reg[%s]=%d reg[%s]=%d ",regnames[rp.r1],regs[rp.r1],regnames[rp.r2],regs[rp.r2]);
+	    printf("\n");
+	  }
 	  if(reg_pair(reg,&rp)&&(arg->flags&(REG|SCRATCH))==(REG|SCRATCH)&&(arg->reg==rp.r1||arg->reg==rp.r2)){
 	    /* rx->reg_pair(rx,ry): make a copy */
 	    new=new_IC();
@@ -2038,10 +2086,59 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
 	    new->q1.reg=reg;
 	    new->q2.flags=new->z.flags=0;
 	    add_IC(new);
-	    regs[reg]=33;regused[reg]++;
+	    regs[reg]=(1|RNOSAVE);regused[reg]++;
+	    if(DEBUG&16) printf("allocated %s (1)\n",regnames[reg]);
 	    if(reg_pair(reg,&rp)){
-	      regs[rp.r1]=33;regused[rp.r1]++;
-	      regs[rp.r2]=33;regused[rp.r2]++;
+	      regs[rp.r1]=1|RNOSAVE;regused[rp.r1]++;
+	      regs[rp.r2]=1|RNOSAVE;regused[rp.r2]++;
+	    }
+	  }else if(!regs[reg]&&reg_pair(reg,&rp)&&(regs[rp.r1]||regs[rp.r2])&&!nocode){
+	    int r=0;
+	    regargs_list *p;
+
+	    new=new_IC();
+	    new->code=ALLOCREG;
+	    new->typf=0;
+	    new->q1.flags=REG;
+	    new->q2.flags=new->z.flags=0;
+	    if(regs[rp.r1]){
+	      new->q1.reg=rp.r2;
+	      r=rp.r1;
+	      regs[r]|=RHALF;
+	    }else{
+	      new->q1.reg=rp.r1;
+	      r=rp.r2;
+	      regs[r]|=RHALF;
+	    }
+	    regs[new->q1.reg]=(1|RNOSAVE);regused[new->q1.reg]++;
+	    regs[reg]=(1|RNOSAVE);regused[reg]++;
+	    add_IC(new);
+	    if(DEBUG&16) printf("allocated %s (half)\n",regnames[new->q1.reg]);
+	    rsaved=r;
+	    /* Testen, ob Quellregister gesichert wurde. Unschoen. */
+	    for(p=*rl;p;p=p->next){
+	      int ri;
+	      if(p->v&&(ri=abs(p->reg))){
+		if(ri==r) break;
+		if(reg_pair(ri,&rp)&&(rp.r1==r||rp.r2==r)) break;
+	      }
+	    }
+	    
+	    if(r&&!p){
+	      t2=clone_typ(regtype[r]);
+	      v=add_var(empty,t2,AUTO,0);
+	      v->flags|=USEDASADR;
+	      new=new_IC();
+	      new->code=MOVEFROMREG;
+	      new->typf=0;
+	      new->q1.flags=REG;
+	      new->q1.reg=r;
+	      new->q2.flags=0;
+	      new->q2.val.vmax=regsize[r];
+	      new->z.flags=VAR|DONTREGISTERIZE;
+	      new->z.v=v;
+	      new->z.val.vmax=l2zm(0L);
+	      add_IC(new);
 	    }
 	  }else{
 	    if((arg->flags&(REG|SCRATCH))!=(REG|SCRATCH)||arg->reg!=reg){
@@ -2087,7 +2184,7 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
                 add_IC(new);
               }
 	    }else{
-	      regs[reg]|=32;
+	      regs[reg]|=RNOSAVE;
 	    }
 	  }
 	  new=new_IC();
@@ -2134,6 +2231,8 @@ zmax push_args(argument_list *al,struct_declaration *sd,int n,regargs_list **rl)
             nrl->next=*rl;
             nrl->reg=reg;
             nrl->v=v;
+	    nrl->rsaved=rsaved; /* if only part of a pair was saved */
+	    rsaved=0;
             *rl=nrl;
             return of;
         }
@@ -2255,7 +2354,7 @@ void convert(np p,int f)
     o=VECTYPE(f);
     convert(p,o);
   }
-  if(!volatile_convert&&((o&NU)==(f&NU)||(!(mc=must_convert(o,f,const_expr))&&(const_expr||!(optflags&2))))){
+  if(!volatile_convert&&((o&(NU&~UNSIGNED))==(f&(NU&~UNSIGNED))||(!(mc=must_convert(o,f,const_expr))&&(const_expr||!(optflags&2))))){
     p->ntyp->flags=f;
     if(!ISPOINTER(f)&&!ISARRAY(f)){freetyp(p->ntyp->next);p->ntyp->next=0;}
     return;
@@ -2266,9 +2365,19 @@ void convert(np p,int f)
     tn=MIN_FLOAT_TO_INT_TYPE|(f&UNSIGNED);
   else
     tn=f;
+  libname=0;
   if(ISFLOAT(f)&&ISINT(o)&&(o&NQ)<MIN_INT_TO_FLOAT_TYPE){
-    to=MIN_INT_TO_FLOAT_TYPE|(o&UNSIGNED);
-    convert(p,to);
+#if HAVE_LIBCALLS
+    if((libname=use_libcall_wrap(CONVERT,tn,o))&&mc){
+      to=o;
+      libname=use_libcall_wrap(CONVERT,tn,MIN_INT_TO_FLOAT_TYPE|(o&UNSIGNED));
+      if(!libname) ierror(0);
+    }else
+#endif
+    {
+      to=MIN_INT_TO_FLOAT_TYPE|(o&UNSIGNED);
+      convert(p,to);
+    }
   }else{
     to=o;
   }
@@ -2278,7 +2387,7 @@ void convert(np p,int f)
   nt.flags=f;
   n.left=&nn;
   nn.ntyp=p->ntyp;
-  if((libname=use_libcall_wrap(CONVERT,tn,to))&&mc){
+  if((libname||(libname=use_libcall_wrap(CONVERT,tn,to)))&&mc){
     node *n=new_node();
     n->flags=REINTERPRET;
     n->o=p->o;
@@ -2366,12 +2475,22 @@ void free_reg(int r)
     new->q1.flags=REG;
     new->q1.reg=r;
     new->q2.flags=new->z.flags=0;
-    add_IC(new);
     regs[r]=0;
     if(reg_pair(r,&rp)){
-      regs[rp.r1]=0;
-      regs[rp.r2]=0;
+      if(regs[rp.r1]&RHALF){
+	if(DEBUG&16) printf("keep %s\n",regnames[rp.r1]);
+	regs[rp.r1]&=~RHALF;
+	new->q1.reg=rp.r2;
+      }else
+	regs[rp.r1]=0;
+      if(regs[rp.r2]&RHALF){
+	if(DEBUG&16) printf("keep %s\n",regnames[rp.r2]);
+	regs[rp.r2]&=~RHALF;
+	new->q1.reg=rp.r1;
+      }else
+	regs[rp.r2]=0;
     }
+    add_IC(new);
 }
 void gen_label(int l)
 /*  Erzeugt ein Label                                   */
@@ -2652,7 +2771,7 @@ void savescratch(int code,IC *p,int dontsave,obj *o)
       mustsave=regscratch[i];
     if(regsa[i]) mustsave=0;
     if(mustsave) simple_scratch[i]=1;
-    if(regs[i]&&!(regs[i]&32)&&mustsave&&i!=dontsave&&i!=ds1&&i!=ds2&&!reg_pair(i,&rp)){
+    if(regs[i]&&!(regs[i]&RNOSAVE)&&mustsave&&i!=dontsave&&i!=ds1&&i!=ds2&&!reg_pair(i,&rp)){
       if(!regsbuf[i]){
 	type *t;
 	if(code!=MOVEFROMREG) continue;
