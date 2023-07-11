@@ -294,14 +294,17 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
         load_address(f, r, o, POINTER);
     } else {
         // if operand is REG, skip because it would be redundant
-        if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r)
-            return;
+        if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r) {
+            // return;
+            emit(f, "\t; load_reg redundant: %s\n", regnames[r]);
+        }
 
         if ((o->flags & KONST) > 0) {
             // constant, use SET
             emit(f, "\tset\t%s\t", regnames[r]);
             emit_obj(f, o, type);
-            emit(f, "\n");
+            // emit(f, "\n");
+            emit(f, "\t; load_reg const\n");
         } else {
             if ((o->flags & REG) > 0) {
                 // source is register
@@ -310,12 +313,14 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                     // we need to dereference reg val
                     // so use LDW
                     emit(f, "\tldw\t%s\t%s\t#0", regnames[r], regnames[o->reg]);
-                    emit(f, "\n");
+                    // emit(f, "\n");
+                    emit(f, "\t; load_reg deref obj\n");
                 } else {
                     // we can MOV value from register
                     emit(f, "\tmov\t%s\t", regnames[r]);
                     emit_obj(f, o, type);
-                    emit(f, "\n");
+                    // emit(f, "\n");
+                    emit(f, "\t; load_reg reg\n");
                 }
             } else if ((o->flags & VAR) > 0) {
                 // source is var, use ldw
@@ -325,14 +330,16 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                     // 1. load address to temp
                     emit(f, "\tset\t%s\t", regnames[at]);
                     emit_obj(f, o, type);
-                    emit(f, "\n");
+                    // emit(f, "\n");
+                    emit(f, "\t; load_reg var (extern/static)\n");
                     // 2. load from address
                     emit(f, "\tldw\t%s\t%s\t#0\n", regnames[r], regnames[at]);
                 } else {
                     // address is register
                     emit(f, "\tldw\t%s\t", regnames[r]);
                     emit_obj(f, o, type);
-                    emit(f, "\n");
+                    // emit(f, "\n");
+                    emit(f, "\t; load_reg var(reg)\n");
                 }
             } else {
                 // unknown
