@@ -1082,13 +1082,25 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         if (c == SUBIFP)
             c = SUB;
         if (c == CONVERT) {
-            if (ISFLOAT(q1typ(p)) || ISFLOAT(ztyp(p)))
+            // need to convert
+            if (ISFLOAT(q1typ(p)) || ISFLOAT(ztyp(p))) {
+                // if source1 or dest is float, fail
                 ierror(0);
+            }
             if (sizetab[q1typ(p) & NQ] < sizetab[ztyp(p) & NQ]) {
-                if (q1typ(p) & UNSIGNED)
-                    emit(f, "\t; zext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
-                else
-                    emit(f, "\t; sext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]);
+                // ??
+                if (q1typ(p) & UNSIGNED) {
+                    // we need to zero-extend q1 -> dest
+                    // emit(f, "\t; zext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]); // generic, broken
+                    // zero-extension: default, just use mov
+                    emit(f, "\tmov\t%s\t%s\t; zext\n", regnames[p->z.reg], regnames[p->q1.reg]);
+                }
+                else {
+                    // we need to sign-extend q1 -> dest
+                    // emit(f, "\t; sext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]); // generic, broken
+                    // sign-extension: use sxt
+                    emit(f, "\tsxt\t%s\t%s\t; sext\n", regnames[p->z.reg], regnames[p->q1.reg]);
+                }
             }
             save_result(f, p);
             continue;
