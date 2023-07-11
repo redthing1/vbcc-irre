@@ -159,6 +159,16 @@ static void emit_obj(FILE *f, struct obj *p, int t);
 // optimization crap
 static void peephole(struct IC *p);
 
+
+static void format_thing_flags(char* buf, int bufsize, int flags) {
+    int is_const = (flags & KONST) > 0;
+    int is_reg = (flags & REG) > 0;
+    int is_deref = (flags & DREFOBJ) > 0;
+    int is_var = (flags & VAR) > 0;
+    // emit(f, "\t; load_reg: %s (const=%d, reg=%d, deref=%d, var=%d)\n", regnames[r], is_const, is_reg, is_deref, is_var);
+    snprintf(buf, bufsize, "const=%d, reg=%d, deref=%d, var=%d", is_const, is_reg, is_deref, is_var);
+}
+
 /* calculate the actual current offset of an object relative to the
    stack-pointer; we use a stack layout like this:
    <---------- STACK POINTER
@@ -286,9 +296,14 @@ static void load_address(FILE *f, int r, struct obj *o, int type)
         emit(f, "\n");
     }
 }
+
 /* Generates code to load a memory object into register r. tmp is a
    general purpose register which may be used. tmp can be r. */
 static void load_reg(FILE *f, int r, struct obj *o, int type) {
+    char thing_flags_str[256];
+    format_thing_flags(thing_flags_str, 256, o->flags);
+    emit(f, "\t; load_reg: %s (%s)\n", regnames[r], thing_flags_str);
+
     type &= NU;
     if (o->flags & VARADR) {
         load_address(f, r, o, POINTER);
@@ -444,6 +459,15 @@ static struct IC *preload(FILE *f, struct IC *p) {
         else
             zreg = t1;
     }
+
+    char q1_thing_flags_str[256];
+    char q2_thing_flags_str[256];
+    char z_thing_flags_str[256];
+    format_thing_flags(q1_thing_flags_str, 256, p->q1.flags);
+    format_thing_flags(q2_thing_flags_str, 256, p->q2.flags);
+    format_thing_flags(z_thing_flags_str, 256, p->z.flags);
+    emit(f, "\t; preload: q1=%s (%s), q2=%s (%s), z=%s (%s)\n",
+         regnames[q1reg], q1_thing_flags_str, regnames[q2reg], q2_thing_flags_str, regnames[zreg], z_thing_flags_str);
 
     if ((p->q1.flags & (DREFOBJ | REG)) == DREFOBJ && !p->q1.am) {
         p->q1.flags &= ~DREFOBJ;
