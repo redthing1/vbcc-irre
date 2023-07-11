@@ -411,7 +411,7 @@ static void function_bottom(FILE *f, struct Var *, long);
 static int q1reg, q2reg, zreg;
 
 static char *ccs[] = {"eq", "ne", "lt", "ge", "le", "gt", ""};
-static char *logicals[] = {"or", "xor", "and"};
+static char *logicals[] = {"orr", "xor", "and"};
 static char *arithmetics[] = {"lsh", "lsh", "add", "sub", "mul", "div", "mod"};
 
 /* Does some pre-processing like fetching operands from memory to
