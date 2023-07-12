@@ -156,18 +156,10 @@ static long localsize, rsavesize, callee_argsize;
 
 static void emit_obj(FILE *f, struct obj *p, int t);
 
+static void format_obj_details(char* buf, int length, struct obj* obj);
+
 // optimization crap
 static void peephole(struct IC *p);
-
-
-static void format_thing_flags(char* buf, int bufsize, int flags) {
-    int is_const = (flags & KONST) > 0;
-    int is_reg = (flags & REG) > 0;
-    int is_deref = (flags & DREFOBJ) > 0;
-    int is_var = (flags & VAR) > 0;
-    // emit(f, "\t; load_reg: %s (const=%d, reg=%d, deref=%d, var=%d)\n", regnames[r], is_const, is_reg, is_deref, is_var);
-    snprintf(buf, bufsize, "const=%d, reg=%d, deref=%d, var=%d", is_const, is_reg, is_deref, is_var);
-}
 
 /* calculate the actual current offset of an object relative to the
    stack-pointer; we use a stack layout like this:
@@ -251,9 +243,7 @@ void title(FILE *f) {
 }
 
 /* generate .file end/footer */
-void footer(FILE *f) {
-    emit(f, "\t; .footer");
-}
+void footer(FILE *f) { emit(f, "\t; .footer"); }
 
 /* changes to a special section, used for __section() */
 static int special_section(FILE *f, struct Var *v) {
@@ -296,30 +286,27 @@ static void load_address(FILE *f, int r, struct obj *o, int type)
         emit(f, "\n");
     }
 }
-
 /* Generates code to load a memory object into register r. tmp is a
    general purpose register which may be used. tmp can be r. */
 static void load_reg(FILE *f, int r, struct obj *o, int type) {
-    char thing_flags_str[256];
-    format_thing_flags(thing_flags_str, 256, o->flags);
-    emit(f, "\t; load_reg: %s (%s)\n", regnames[r], thing_flags_str);
+    char load_reg_obj_details[256];
+    format_obj_details(load_reg_obj_details, 256, o);
+    emit(f, "\t; load_reg: %s <- %s\n", regnames[r], load_reg_obj_details);
 
     type &= NU;
     if (o->flags & VARADR) {
         load_address(f, r, o, POINTER);
     } else {
         // if operand is REG, skip because it would be redundant
-        if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r) {
-            // return;
-            emit(f, "\t; load_reg redundant: %s\n", regnames[r]);
-        }
+        if ((o->flags & (REG | DREFOBJ)) == REG && o->reg == r)
+            return;
 
         if ((o->flags & KONST) > 0) {
             // constant, use SET
             emit(f, "\tset\t%s\t", regnames[r]);
             emit_obj(f, o, type);
-            // emit(f, "\n");
-            emit(f, "\t; load_reg const\n");
+            emit(f, "\t; load_reg const");
+            emit(f, "\n");
         } else {
             if ((o->flags & REG) > 0) {
                 // source is register
@@ -328,14 +315,12 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                     // we need to dereference reg val
                     // so use LDW
                     emit(f, "\tldw\t%s\t%s\t#0", regnames[r], regnames[o->reg]);
-                    // emit(f, "\n");
-                    emit(f, "\t; load_reg deref obj\n");
+                    emit(f, "\n");
                 } else {
                     // we can MOV value from register
                     emit(f, "\tmov\t%s\t", regnames[r]);
                     emit_obj(f, o, type);
-                    // emit(f, "\n");
-                    emit(f, "\t; load_reg reg\n");
+                    emit(f, "\n");
                 }
             } else if ((o->flags & VAR) > 0) {
                 // source is var, use ldw
@@ -345,16 +330,15 @@ static void load_reg(FILE *f, int r, struct obj *o, int type) {
                     // 1. load address to temp
                     emit(f, "\tset\t%s\t", regnames[at]);
                     emit_obj(f, o, type);
-                    // emit(f, "\n");
-                    emit(f, "\t; load_reg var (extern/static)\n");
+                    emit(f, "\n");
                     // 2. load from address
                     emit(f, "\tldw\t%s\t%s\t#0\n", regnames[r], regnames[at]);
                 } else {
                     // address is register
+                    emit(f, "\t; address is register\n");
                     emit(f, "\tldw\t%s\t", regnames[r]);
                     emit_obj(f, o, type);
-                    // emit(f, "\n");
-                    emit(f, "\t; load_reg var(reg)\n");
+                    emit(f, "\n");
                 }
             } else {
                 // unknown
@@ -427,6 +411,7 @@ static struct IC *preload(FILE *, struct IC *);
 static void function_top(FILE *, struct Var *, long);
 static void function_bottom(FILE *f, struct Var *, long);
 
+// whether storage is register (and not a deref)
 #define isreg(x) ((p->x.flags & (REG | DREFOBJ)) == REG)
 #define isconst(x) ((p->x.flags & (KONST | DREFOBJ)) == KONST)
 
@@ -452,6 +437,7 @@ static struct IC *preload(FILE *f, struct IC *p) {
         q2reg = 0;
 
     if (isreg(z)) {
+        // if z is to be stored in a register, set zreg to that register
         zreg = p->z.reg;
     } else {
         if (ISFLOAT(ztyp(p)))
@@ -463,43 +449,52 @@ static struct IC *preload(FILE *f, struct IC *p) {
     char q1_thing_flags_str[256];
     char q2_thing_flags_str[256];
     char z_thing_flags_str[256];
-    format_thing_flags(q1_thing_flags_str, 256, p->q1.flags);
-    format_thing_flags(q2_thing_flags_str, 256, p->q2.flags);
-    format_thing_flags(z_thing_flags_str, 256, p->z.flags);
-    emit(f, "\t; preload: q1=%s (%s), q2=%s (%s), z=%s (%s)\n",
-         regnames[q1reg], q1_thing_flags_str, regnames[q2reg], q2_thing_flags_str, regnames[zreg], z_thing_flags_str);
+    format_obj_details(q1_thing_flags_str, 256, &p->q1);
+    format_obj_details(q2_thing_flags_str, 256, &p->q2);
+    format_obj_details(z_thing_flags_str, 256, &p->z);
+    emit(f, "\t; preload: q1=%s (%s), q2=%s (%s), z=%s (%s)\n", regnames[q1reg], q1_thing_flags_str, regnames[q2reg],
+         q2_thing_flags_str, regnames[zreg], z_thing_flags_str);
 
-    if ((p->q1.flags & (DREFOBJ | REG)) == DREFOBJ && !p->q1.am) {
-        p->q1.flags &= ~DREFOBJ;
-        load_reg(f, t1, &p->q1, q1typ(p));
-        p->q1.reg = t1;
-        p->q1.flags |= (REG | DREFOBJ);
-    }
-    if (p->q1.flags && LOAD_STORE && !isreg(q1)) {
-        if (ISFLOAT(q1typ(p)))
-            q1reg = f1;
-        else
-            q1reg = t1;
-        load_reg(f, q1reg, &p->q1, q1typ(p));
-        p->q1.reg = q1reg;
-        p->q1.flags = REG;
-    }
+    // if ((p->q1.flags & (DREFOBJ | REG)) == DREFOBJ && !p->q1.am) {
+    //     // if q1 is dereferenced and not in a register, load it into a register
+    //     emit(f, "\t; preload: (q1 & DREFOBJ) and ~REG\n");
+    //     p->q1.flags &= ~DREFOBJ;
+    //     // load into t1
+    //     load_reg(f, t1, &p->q1, q1typ(p));
+    //     p->q1.reg = t1;
+    //     p->q1.flags |= (REG | DREFOBJ);
+    // }
+    // if (p->q1.flags && LOAD_STORE && !isreg(q1)) {
+    //     emit(f, "\t; preload: q1.flags && LOAD_STORE and ~isreg(q1)\n");
+    //     // if this is a load store but q1 is not in a register, load it into a register
+    //     if (ISFLOAT(q1typ(p)))
+    //         q1reg = f1;
+    //     else
+    //         q1reg = t1;
+    //     load_reg(f, q1reg, &p->q1, q1typ(p));
+    //     p->q1.reg = q1reg;
+    //     p->q1.flags = REG;
+    // }
 
-    if ((p->q2.flags & (DREFOBJ | REG)) == DREFOBJ && !p->q2.am) {
-        p->q2.flags &= ~DREFOBJ;
-        load_reg(f, t1, &p->q2, q2typ(p));
-        p->q2.reg = t1;
-        p->q2.flags |= (REG | DREFOBJ);
-    }
-    if (p->q2.flags && LOAD_STORE && !isreg(q2)) {
-        if (ISFLOAT(q2typ(p)))
-            q2reg = f2;
-        else
-            q2reg = t2;
-        load_reg(f, q2reg, &p->q2, q2typ(p));
-        p->q2.reg = q2reg;
-        p->q2.flags = REG;
-    }
+    // if ((p->q2.flags & (DREFOBJ | REG)) == DREFOBJ && !p->q2.am) {
+    //     emit(f, "\t; preload: (q2 & DREFOBJ) and ~REG\n");
+    //     // if q2 is dereferenced and not in a register, load it into a register
+    //     p->q2.flags &= ~DREFOBJ;
+    //     load_reg(f, t1, &p->q2, q2typ(p));
+    //     p->q2.reg = t1;
+    //     p->q2.flags |= (REG | DREFOBJ);
+    // }
+    // if (p->q2.flags && LOAD_STORE && !isreg(q2)) {
+    //     emit(f, "\t; preload: q2.flags && LOAD_STORE and ~isreg(q2)\n");
+    //     // if this is a load store but q2 is not in a register, load it into a register
+    //     if (ISFLOAT(q2typ(p)))
+    //         q2reg = f2;
+    //     else
+    //         q2reg = t2;
+    //     load_reg(f, q2reg, &p->q2, q2typ(p));
+    //     p->q2.reg = q2reg;
+    //     p->q2.flags = REG;
+    // }
     return p;
 }
 
@@ -537,6 +532,7 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
         return;
     }
     if (p->flags & DREFOBJ) {
+        emit(f, "/* deref obj */");
         emit(f, "(");
     }
     if (p->flags & REG) {
@@ -549,7 +545,7 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
             if (objvar_raw_offset(p) < 0) {
                 // TODO: can we improve this? this hardcodes arg size
                 long argi = (objvar_raw_offset(p) + zm2l(maxalign)) / 4;
-                emit(f, "\t; get arg_%ld", argi);
+                emit(f, "\t/* get arg_%ld */", argi);
             }
 
         } else {
@@ -569,8 +565,9 @@ static void emit_obj(FILE *f, struct obj *p, int t) {
         emit(f, "#"); // decimal constant
         emitval(f, &p->val, t & NU);
     }
-    if (p->flags & DREFOBJ)
+    if (p->flags & DREFOBJ) {
         emit(f, ")");
+    }
 }
 
 /* generates the function entry code */
@@ -1104,6 +1101,8 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
         if ((c == ASSIGN || c == PUSH) && ((t & NQ) > POINTER || ((t & NQ) == CHAR && zm2l(p->q2.val.vmax) != 1))) {
             ierror(0);
         }
+        // log the code to the file
+        emit(f, "\t; gen_code: op=%d, typ=%d", c, t);
         p = preload(f, p);
         c = p->code;
         if (c == SUBPFP)
@@ -1120,17 +1119,19 @@ void gen_code(FILE *f, struct IC *p, struct Var *v, zmax frame_offset)
             }
             if (sizetab[q1typ(p) & NQ] < sizetab[ztyp(p) & NQ]) {
                 // ??
+                // grab q1 into reg
+                q1reg = t1;
+                load_reg(f, q1reg, &p->q1, t);
                 if (q1typ(p) & UNSIGNED) {
                     // we need to zero-extend q1 -> dest
                     // emit(f, "\t; zext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]); // generic, broken
                     // zero-extension: default, just use mov
-                    emit(f, "\tmov\t%s\t%s\t; zext\n", regnames[p->z.reg], regnames[p->q1.reg]);
-                }
-                else {
+                    emit(f, "\tmov\t%s\t%s\t; zext\n", regnames[p->z.reg], regnames[q1reg]);
+                } else {
                     // we need to sign-extend q1 -> dest
                     // emit(f, "\t; sext.%s\t%s\n", dt(q1typ(p)), regnames[zreg]); // generic, broken
                     // sign-extension: use sxt
-                    emit(f, "\tsxt\t%s\t%s\t; sext\n", regnames[p->z.reg], regnames[p->q1.reg]);
+                    emit(f, "\tsxt\t%s\t%s\t; sext\n", regnames[p->z.reg], regnames[q1reg]);
                 }
             }
             save_result(f, p);
@@ -1500,4 +1501,14 @@ static void peephole(struct IC *p) {
             }
         }
     }
+}
+
+static void format_obj_details(char* buf, int length, struct obj* obj) {
+    int is_const = (obj->flags & KONST) > 0;
+    int is_var = (obj->flags & VAR) > 0;
+    int is_deref = (obj->flags & DREFOBJ) > 0;
+    int is_reg = (obj->flags & VAR) > 0;
+    int reg_id = obj->reg;
+
+    snprintf(buf, length, "is_const: %d, is_var: %d, is_deref: %d, is_reg: %d, reg_id: %d", is_const, is_var, is_deref, is_reg, reg_id);
 }
